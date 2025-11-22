@@ -23,6 +23,7 @@ namespace BusinessLayer.DTOs.Schedule.ClassRequest
 
         // join info
         public string? StudentName { get; set; }
+        public string? TutorId { get; set; }
         public string? TutorName { get; set; }
         public string Subject { get; set; }
         public string EducationLevel { get; set; }

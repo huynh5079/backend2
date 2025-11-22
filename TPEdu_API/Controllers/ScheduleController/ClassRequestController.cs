@@ -31,12 +31,13 @@ namespace TPEdu_API.Controllers
         /// [Student] Tạo một request (direct hoặc marketplace).
         /// </summary>
         [HttpPost]
-        [Authorize(Roles = "Student")]
+        [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> CreateClassRequest([FromBody] CreateClassRequestDto dto)
         {
-            var studentUserId = User.RequireUserId();
+            var userId = User.RequireUserId();
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-            var result = await _classRequestService.CreateClassRequestAsync(studentUserId, dto);
+            var result = await _classRequestService.CreateClassRequestAsync(userId, role, dto);
 
             if (result == null)
             {
@@ -50,65 +51,65 @@ namespace TPEdu_API.Controllers
         /// [Student] Cập nhật thông tin request (khi còn Pending).
         /// </summary>
         [HttpPut("{id}")]
-        [Authorize(Roles = "Student")]
+        [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> UpdateClassRequest(string id, [FromBody] UpdateClassRequestDto dto)
         {
+            var userId = User.RequireUserId();
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-                var studentUserId = User.GetUserId();
-                if (studentUserId == null)
-                    return Unauthorized(new { message = "Token không hợp lệ." });
+            var result = await _classRequestService.UpdateClassRequestAsync(userId, role, id, dto);
+            if (result == null) return NotFound(ApiResponse<object>.Fail("Không tìm thấy yêu cầu."));
 
-                var result = await _classRequestService.UpdateClassRequestAsync(studentUserId, id, dto);
-                return Ok(result);
-
+            return Ok(ApiResponse<ClassRequestResponseDto>.Ok(result, "Cập nhật thành công."));
         }
 
         /// <summary>
         /// [Student] Cập nhật lịch (schedules) cho một request (khi còn Pending).
         /// </summary>
         [HttpPut("{id}/schedules")]
-        [Authorize(Roles = "Student")]
+        [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> UpdateClassRequestSchedules(string id, [FromBody] List<ClassRequestScheduleDto> scheduleDtos)
         {
 
-                var studentUserId = User.GetUserId();
-                if (studentUserId == null)
-                    return Unauthorized(new { message = "Token không hợp lệ." });
+            var userId = User.GetUserId();
+            if (userId == null)
+                return Unauthorized(new { message = "Token không hợp lệ." });
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-                var success = await _classRequestService.UpdateClassRequestScheduleAsync(studentUserId, id, scheduleDtos);
-                return Ok(new { message = "Cập nhật lịch thành công." });
-
+            await _classRequestService.UpdateClassRequestScheduleAsync(userId, role, id, scheduleDtos);
+            return Ok(new { message = "Cập nhật lịch thành công." });
         }
 
         /// <summary>
         /// [Student] Hủy một request (khi còn Pending).
         /// </summary>
         [HttpPatch("{id}/cancel")]
-        [Authorize(Roles = "Student")]
+        [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> CancelClassRequest(string id)
         {
 
-                var studentUserId = User.GetUserId();
-                if (studentUserId == null)
+            var userId = User.GetUserId();
+            if (userId == null)
                     return Unauthorized(new { message = "Token không hợp lệ." });
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-                await _classRequestService.CancelClassRequestAsync(studentUserId, id);
+            await _classRequestService.CancelClassRequestAsync(userId, role, id);
                 return Ok(new { message = "Hủy yêu cầu thành công." });
-
         }
 
         /// <summary>
         /// [Student] Lấy các request CỦA TÔI.
         /// </summary>
         [HttpGet("my-requests")]
-        [Authorize(Roles = "Student")]
+        [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> GetMyClassRequests()
         {
-            var studentUserId = User.GetUserId();
-            if (studentUserId == null)
+            var userId = User.GetUserId();
+            if (userId == null)
                 return Unauthorized(new { message = "Token không hợp lệ." });
+            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-            var result = await _classRequestService.GetMyClassRequestsAsync(studentUserId);
+            var result = await _classRequestService.GetMyClassRequestsAsync(userId, role);
             return Ok(result);
         }
 

@@ -5,7 +5,9 @@ namespace BusinessLayer.DTOs.Schedule.ClassRequest
 {
     public class CreateClassRequestDto
     {
-        // directly student create, so no StudentId needed
+        // If parentt, choose student
+        // If null, means the student create by themselves
+        public string? StudentUserId { get; set; }
         public string? TutorId { get; set; }
 
         [Required]

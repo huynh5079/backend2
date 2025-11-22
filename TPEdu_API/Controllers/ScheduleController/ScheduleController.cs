@@ -27,7 +27,8 @@ namespace TPEdu_API.Controllers.ScheduleController
             string tutorId, 
             [FromQuery] DateTime startDate, 
             [FromQuery] DateTime endDate,
-            [FromQuery] string? entryType)
+            [FromQuery] string? entryType,
+            [FromQuery] string? classId)
         {
             if (endDate < startDate)
             {

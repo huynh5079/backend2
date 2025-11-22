@@ -187,6 +187,10 @@ namespace BusinessLayer.Service.ScheduleService
             targetClass.Location = dto.Location;
             targetClass.StudentLimit = dto.StudentLimit;
             targetClass.OnlineStudyLink = dto.OnlineStudyLink;
+            if (dto.Mode.HasValue)
+            {
+                targetClass.Mode = dto.Mode.Value;
+            }
 
             await _uow.Classes.UpdateAsync(targetClass);
             await _uow.SaveChangesAsync();

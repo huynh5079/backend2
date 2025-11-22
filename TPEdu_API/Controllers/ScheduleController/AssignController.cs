@@ -92,5 +92,19 @@ namespace TPEdu_API.Controllers.ScheduleController
             var enrollmentDetail = await _assignService.GetEnrollmentDetailAsync(userId, classId);
             return Ok(ApiResponse<ClassAssignDetailDto>.Ok(enrollmentDetail, "Lấy thông tin enrollment thành công."));
         }
+
+        /// <summary>
+        /// [Tutor] Take all students assigned to the tutor's classes.
+        /// </summary>
+        [HttpGet("tutor/my-students")]
+        [Authorize(Roles = "Tutor")]
+        public async Task<IActionResult> GetMyStudents()
+        {
+            var tutorUserId = User.RequireUserId();
+            var students = await _assignService.GetStudentsByTutorAsync(tutorUserId);
+            return Ok(ApiResponse<List<TutorStudentDto>>.Ok(students, "Lấy danh sách học sinh thành công."));
+        }
+
+        // ...
     }
 }

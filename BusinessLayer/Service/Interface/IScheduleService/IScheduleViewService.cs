@@ -11,9 +11,17 @@ namespace BusinessLayer.Service.Interface.IScheduleService
     public interface IScheduleViewService
     {
         // Get a tutor's schedule entries between startDate and endDate
-        Task<IEnumerable<ScheduleEntryDto>> GetTutorScheduleAsync(string tutorId, DateTime startDate, DateTime endDate, string? entryType);
+        Task<IEnumerable<ScheduleEntryDto>> GetTutorScheduleAsync(
+            string tutorId, 
+            DateTime startDate, 
+            DateTime endDate, 
+            string? entryType, 
+            string? classId = null);
 
         // Get a student's schedule entries between startDate and endDate
-        Task<IEnumerable<ScheduleEntryDto>> GetStudentScheduleAsync(string studentUserId, DateTime startDate, DateTime endDate);
+        Task<IEnumerable<ScheduleEntryDto>> GetStudentScheduleAsync(
+            string studentUserId, 
+            DateTime startDate, 
+            DateTime endDate);
     }
 }

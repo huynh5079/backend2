@@ -33,7 +33,8 @@ namespace BusinessLayer.Service.ScheduleService
             string tutorId, 
             DateTime startDate, 
             DateTime endDate, 
-            string? entryType)
+            string? entryType,
+            string? classId = null)
         {
             //  startDate, endDate to UTC, endDate is full day
             var startUtc = startDate.Date.ToUniversalTime();
@@ -43,59 +44,59 @@ namespace BusinessLayer.Service.ScheduleService
             // define includes with Block
             Func<IQueryable<ScheduleEntry>, IQueryable<ScheduleEntry>> includes = query =>
                 query.Include(se => se.Lesson)
-                     .Include(se => se.Block) // <-- Thêm Include này
+                     .Include(se => se.Block)
                      .OrderBy(se => se.StartTime);
 
             // create base filter expression
-            Expression<Func<ScheduleEntry, bool>> baseFilter = se =>
+            Expression<Func<ScheduleEntry, bool>> filter = se =>
                 se.TutorId == tutorId &&
                 se.DeletedAt == null &&
                 se.StartTime < endUtc &&
                 se.EndTime > startUtc;
 
-            IEnumerable<ScheduleEntry> scheduleEntries;
-
-            // decide which query to run based on entryType
-            if (!string.IsNullOrEmpty(entryType))
+            // Apply classId filter if provided
+            // Only applies to LESSON entries, BLOCK entries don't have Lesson/Class
+            if (!string.IsNullOrEmpty(classId))
             {
-                if (Enum.TryParse<EntryType>(entryType.ToUpper(), out var type))
+                filter = se =>
+                    se.TutorId == tutorId &&
+                    se.DeletedAt == null &&
+                    se.StartTime < endUtc &&
+                    se.EndTime > startUtc &&
+                    se.Lesson != null &&
+                    se.Lesson.ClassId == classId;
+            }
+
+            if (!string.IsNullOrEmpty(entryType) && Enum.TryParse<EntryType>(entryType.ToUpper(), out var type))
+            {
+                // if have classId -> filter add classId to base
+                if (!string.IsNullOrEmpty(classId))
                 {
-                    // Do 2 separate queries for LESSON and BLOCK
-                    if (type == EntryType.LESSON)
-                    {
-                        scheduleEntries = await _uow.ScheduleEntries.GetAllAsync(
-                            filter: se => se.TutorId == tutorId &&
-                                         se.DeletedAt == null &&
-                                         se.StartTime < endUtc &&
-                                         se.EndTime > startUtc &&
-                                         se.EntryType == EntryType.LESSON, // filter LESSON
-                            includes: includes
-                        );
-                    }
-                    else // (type == EntryType.BLOCK)
-                    {
-                        scheduleEntries = await _uow.ScheduleEntries.GetAllAsync(
-                            filter: se => se.TutorId == tutorId &&
-                                         se.DeletedAt == null &&
-                                         se.StartTime < endUtc &&
-                                         se.EndTime > startUtc &&
-                                         se.EntryType == EntryType.BLOCK, // filter BLOCK
-                            includes: includes
-                        );
-                    }
+                    filter = se =>
+                        se.TutorId == tutorId &&
+                        se.DeletedAt == null &&
+                        se.StartTime < endUtc &&
+                        se.EndTime > startUtc &&
+                        se.Lesson != null &&
+                        se.Lesson.ClassId == classId &&
+                        se.EntryType == type;
                 }
+                // If no classId, just filter by type
                 else
                 {
-                    throw new ArgumentException($"Loại lịch (entryType) '{entryType}' không hợp lệ. Chỉ chấp nhận 'LESSON' hoặc 'BLOCK'.");
+                    filter = se =>
+                        se.TutorId == tutorId &&
+                        se.DeletedAt == null &&
+                        se.StartTime < endUtc &&
+                        se.EndTime > startUtc &&
+                        se.EntryType == type;
                 }
             }
-            else // no entryType filter, get all
-            {
-                scheduleEntries = await _uow.ScheduleEntries.GetAllAsync(
-                    filter: baseFilter,
-                    includes: includes
-                );
-            }
+
+            var scheduleEntries = await _uow.ScheduleEntries.GetAllAsync(
+                filter: filter,
+                includes: includes
+            );
 
             // Map DTO
             return scheduleEntries.Select(se => new ScheduleEntryDto
@@ -107,7 +108,8 @@ namespace BusinessLayer.Service.ScheduleService
                 EntryType = se.EntryType,
                 LessonId = se.LessonId,
                 ClassId = se.Lesson?.ClassId,
-                Title = se.EntryType == EntryType.LESSON ? se.Lesson?.Title : "Lịch rảnh"
+                Title = se.EntryType == EntryType.LESSON ? se.Lesson?.Title : "Lịch rảnh",
+                AttendanceStatus = null
             });
         }
 
@@ -136,20 +138,30 @@ namespace BusinessLayer.Service.ScheduleService
                     .Include(se => se.Lesson)
                         .ThenInclude(l => l.Class)
                             .ThenInclude(c => c.ClassAssigns)
+                    .Include(se => se.Lesson)
+                        .ThenInclude(l => l.Attendances)
                     .OrderBy(se => se.StartTime)
             );
-
+                
             // map to DTO
-            return scheduleEntries.Select(se => new ScheduleEntryDto
+            return scheduleEntries.Select(se =>
             {
-                Id = se.Id,
-                TutorId = se.TutorId,
-                StartTime = se.StartTime,
-                EndTime = se.EndTime,
-                EntryType = se.EntryType,
-                LessonId = se.LessonId,
-                ClassId = se.Lesson?.ClassId, // take from Lesson
-                Title = se.Lesson?.Title      // take from Lesson
+                // Find attendance record for this student in the lesson
+                var myAttendance = se.Lesson?.Attendances?
+                    .FirstOrDefault(a => a.StudentId == studentProfileId);
+                return new ScheduleEntryDto
+                {
+                    Id = se.Id,
+                    TutorId = se.TutorId,
+                    StartTime = se.StartTime,
+                    EndTime = se.EndTime,
+                    EntryType = se.EntryType,
+                    LessonId = se.LessonId,
+                    ClassId = se.Lesson?.ClassId,   // take from Lesson
+                    Title = se.Lesson?.Title,   // take from Lesson
+                    // Map attendance status if exists
+                    AttendanceStatus = myAttendance?.Status.ToString()
+                };
             });
         }
     }

@@ -325,6 +325,38 @@ namespace BusinessLayer.Service.ScheduleService
             };
         }
 
+        public async Task<List<TutorStudentDto>> GetStudentsByTutorAsync(string tutorUserId)
+        {
+            var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
+            if (tutorProfileId == null)
+                throw new UnauthorizedAccessException("Tài khoản gia sư không hợp lệ.");
+
+            // Lấy tất cả ClassAssign thuộc về các lớp của Tutor này
+            // Điều kiện: Lớp của Tutor && Học sinh đã được Approved
+            var assigns = await _uow.ClassAssigns.GetAllAsync(
+                filter: ca => ca.Class != null &&
+                              ca.Class.TutorId == tutorProfileId &&
+                              ca.ApprovalStatus == ApprovalStatus.Approved,
+                includes: q => q.Include(ca => ca.Class)
+                                .Include(ca => ca.Student).ThenInclude(s => s!.User)
+            );
+
+            return assigns.Select(ca => new TutorStudentDto
+            {
+                StudentId = ca.StudentId!,
+                StudentUserId = ca.Student?.UserId ?? "",
+                StudentName = ca.Student?.User?.UserName ?? "N/A",
+                StudentEmail = ca.Student?.User?.Email,
+                StudentPhone = ca.Student?.User?.Phone,
+                StudentAvatarUrl = ca.Student?.User?.AvatarUrl,
+
+                ClassId = ca.ClassId!,
+                ClassTitle = ca.Class?.Title ?? "N/A",
+                StudentLimit = ca.Class?.StudentLimit ?? 0,
+                JoinedAt = ca.EnrolledAt ?? ca.CreatedAt
+            }).ToList();
+        }
+
         // --- Helper ---
         private ClassDto MapToClassDto(Class cls)
         {

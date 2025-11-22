@@ -1,4 +1,5 @@
-﻿using System;
+﻿using DataLayer.Enum;
+using System;
 using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.Linq;
@@ -28,5 +29,7 @@ namespace BusinessLayer.DTOs.Schedule.Class
         public int StudentLimit { get; set; }
 
         public string? OnlineStudyLink { get; set; }
+
+        public ClassMode? Mode { get; set; }
     }
 }

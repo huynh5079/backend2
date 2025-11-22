@@ -20,5 +20,8 @@ namespace BusinessLayer.Service.Interface.IScheduleService
         Task<EnrollmentCheckDto> CheckEnrollmentAsync(string studentUserId, string classId);
         Task<List<StudentEnrollmentDto>> GetStudentsInClassAsync(string tutorUserId, string classId);
         Task<ClassAssignDetailDto> GetEnrollmentDetailAsync(string userId, string classId);
+
+        // Take all students assigned to a tutor's classes
+        Task<List<TutorStudentDto>> GetStudentsByTutorAsync(string tutorUserId);
     }
 }

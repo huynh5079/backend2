@@ -6,11 +6,11 @@ namespace BusinessLayer.Service.Interface.IScheduleService
     public interface IClassRequestService
     {
         // --- STUDENT's Actions ---
-        Task<ClassRequestResponseDto?> CreateClassRequestAsync(string studentUserId, CreateClassRequestDto dto);
-        Task<ClassRequestResponseDto?> UpdateClassRequestAsync(string studentUserId, string requestId, UpdateClassRequestDto dto);
-        Task<bool> UpdateClassRequestScheduleAsync(string studentUserId, string requestId, List<ClassRequestScheduleDto> scheduleDtos);
-        Task<bool> CancelClassRequestAsync(string studentUserId, string requestId);
-        Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string studentUserId);
+        Task<ClassRequestResponseDto?> CreateClassRequestAsync(string actorUserId, string userRole, CreateClassRequestDto dto);
+        Task<ClassRequestResponseDto?> UpdateClassRequestAsync(string actorUserId, string userRole, string requestId, UpdateClassRequestDto dto);
+        Task<bool> UpdateClassRequestScheduleAsync(string actorUserId, string userRole, string requestId, List<ClassRequestScheduleDto> scheduleDtos);
+        Task<bool> CancelClassRequestAsync(string actorUserId, string userRole, string requestId);
+        Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string actorUserId, string userRole);
 
         // --- TUTOR's Actions ---
         Task<IEnumerable<ClassRequestResponseDto>> GetDirectRequestsAsync(string tutorUserId);
