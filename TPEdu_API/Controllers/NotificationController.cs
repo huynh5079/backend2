@@ -77,6 +77,7 @@ namespace TPEdu_API.Controllers
             
             notification.Status = NotificationStatus.Read;
             await _uow.Notifications.UpdateAsync(notification);
+            await _uow.SaveChangesAsync();
             
             return Ok(new { message = "Notification marked as read" });
         }
@@ -92,6 +93,7 @@ namespace TPEdu_API.Controllers
                 notification.Status = NotificationStatus.Read;
                 await _uow.Notifications.UpdateAsync(notification);
             }
+            await _uow.SaveChangesAsync();
             
             return Ok(new { message = "All notifications marked as read", count = notifications.Count() });
         }

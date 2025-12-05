@@ -16,11 +16,13 @@ namespace BusinessLayer.Service
     {
         private readonly IUnitOfWork _uow;
         private readonly TpeduContext _ctx;
+        private readonly INotificationService _notificationService;
 
-        public FeedbackService(IUnitOfWork uow, TpeduContext ctx)
+        public FeedbackService(IUnitOfWork uow, TpeduContext ctx, INotificationService notificationService)
         {
             _uow = uow;
             _ctx = ctx;
+            _notificationService = notificationService;
         }
 
         public async Task<FeedbackDto> CreateAsync(string actorUserId, CreateFeedbackRequest req)
@@ -75,6 +77,27 @@ namespace BusinessLayer.Service
 
             await RecalculateTutorRatingAsync(req.ToUserId);
 
+            // Gửi notification cho người nhận feedback (thường là tutor)
+            if (!string.IsNullOrEmpty(req.ToUserId) && req.ToUserId != actorUserId)
+            {
+                try
+                {
+                    var ratingText = req.Rating.HasValue ? $"{req.Rating.Value}/5 sao" : "không có đánh giá";
+                    var message = $"Bạn có đánh giá mới từ {actor.UserName ?? "học sinh"}: {ratingText}.{(string.IsNullOrWhiteSpace(req.Comment) ? "" : $" \"{req.Comment}\"")}";
+                    var notification = await _notificationService.CreateAccountNotificationAsync(
+                        req.ToUserId,
+                        NotificationType.FeedbackCreated,
+                        message,
+                        req.ClassId);
+                    await _uow.SaveChangesAsync();
+                    await _notificationService.SendRealTimeNotificationAsync(req.ToUserId, notification);
+                }
+                catch (Exception notifEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                }
+            }
+
             var fromName = actor.UserName ?? "User";
             var toName = (await _uow.Users.GetByIdAsync(req.ToUserId))?.UserName ?? "User";
             return MapDto(fb, fromName, toName);
@@ -109,6 +132,27 @@ namespace BusinessLayer.Service
 
             await _uow.Feedbacks.CreateAsync(fb);
             await _uow.SaveChangesAsync();
+
+            // Gửi notification cho tutor khi có feedback công khai mới
+            if (!string.IsNullOrEmpty(tutorUserId) && tutorUserId != actorUserId)
+            {
+                try
+                {
+                    var ratingText = req.Rating.HasValue ? $"{req.Rating.Value}/5 sao" : "không có đánh giá";
+                    var message = $"Bạn có đánh giá công khai mới từ {actor.UserName ?? "người dùng"}: {ratingText}.{(string.IsNullOrWhiteSpace(req.Comment) ? "" : $" \"{req.Comment}\"")}";
+                    var notification = await _notificationService.CreateAccountNotificationAsync(
+                        tutorUserId,
+                        NotificationType.FeedbackCreated,
+                        message,
+                        null);
+                    await _uow.SaveChangesAsync();
+                    await _notificationService.SendRealTimeNotificationAsync(tutorUserId, notification);
+                }
+                catch (Exception notifEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                }
+            }
 
             var fromName = actor.UserName ?? "User";
             var toName = tutor.UserName ?? "Tutor";

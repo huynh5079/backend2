@@ -21,5 +21,6 @@ namespace BusinessLayer.Options
         public string Certificates { get; set; } = "certificates";
         public string Materials { get; set; } = "materials";
         public string IdentityDocuments { get; set; } = "identity";
+        public string Chat { get; set; } = "chat";
     }
 }

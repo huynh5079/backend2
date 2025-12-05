@@ -14,6 +14,7 @@ using DataLayer.Repositories.Schedule;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 using StackExchange.Redis;
 using System.Text;
@@ -34,7 +35,21 @@ builder.Services.AddControllers()
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "TPEdu API",
+        Version = "v1"
+    });
+    
+    // Cấu hình để Swagger hiểu IFormFile cho file uploads
+    c.MapType<Microsoft.AspNetCore.Http.IFormFile>(() => new Microsoft.OpenApi.Models.OpenApiSchema
+    {
+        Type = "string",
+        Format = "binary"
+    });
+});
 
 // CORS
 builder.Services.AddCors(options =>
@@ -51,8 +66,9 @@ builder.Services.AddCors(options =>
 });
 
 // DbContext
+var sqlConnection = builder.Configuration.GetConnectionString("DefaultConnection");
 builder.Services.AddDbContext<TpeduContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+    options.UseSqlServer(sqlConnection));
 
 /* // Optional: SQL retry pattern
 builder.Services.AddDbContext<TpeduContext>(options =>
@@ -87,15 +103,28 @@ builder.Services.AddScoped<IParentChildrenService, ParentChildrenService>();
 builder.Services.AddScoped<IAttendanceService, AttendanceService>();
 builder.Services.AddScoped<IWalletService, WalletService>();
 builder.Services.AddScoped<IEscrowService, EscrowService>();
+builder.Services.AddScoped<ICommissionService, CommissionService>();
+builder.Services.AddScoped<ICommissionManagementService, CommissionManagementService>();
+builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
+builder.Services.AddScoped<IClassStatusCheckService, ClassStatusCheckService>();
+
+// Background Services
+builder.Services.AddHostedService<ClassStatusCheckBackgroundService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
 builder.Services.AddScoped<IChatHubService, TPEdu_API.Services.ChatHubService>();
 builder.Services.AddScoped<IChatService, ChatService>();
+builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IMomoPaymentService, MomoPaymentService>();
 builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
 builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
 builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IFavoriteTutorService, FavoriteTutorService>();
+
+// Quiz Feature Services
+builder.Services.AddScoped<IQuizFileParserService, QuizFileParserService>();
+builder.Services.AddScoped<IQuizService, QuizService>();
 
 // Schedule Transactions
 builder.Services.AddScoped<IAvailabilityBlockService, AvailabilityBlockService>();
@@ -107,6 +136,7 @@ builder.Services.AddScoped<IScheduleViewService, ScheduleViewService>();
 builder.Services.AddScoped<IAssignService, AssignService>();
 builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
 builder.Services.AddScoped<ILessonRescheduleService, LessonRescheduleService>();
+builder.Services.AddScoped<ILessonService, LessonService>();
 
 // Exception Handler & ProblemDetails
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -132,6 +162,18 @@ builder.Services.AddScoped<IPaymentRepository, PaymentRepository>();
 builder.Services.AddScoped<IPaymentLogRepository, PaymentLogRepository>();
 builder.Services.AddScoped<IRescheduleRequestRepository, RescheduleRequestRepository>();
 builder.Services.AddScoped<IMessageRepository, MessageRepository>();
+builder.Services.AddScoped<ICommissionRepository, CommissionRepository>();
+builder.Services.AddScoped<IFavoriteTutorRepository, FavoriteTutorRepository>();
+builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
+builder.Services.AddScoped<ITutorDepositEscrowRepository, TutorDepositEscrowRepository>();
+builder.Services.AddScoped<ISystemSettingsRepository, SystemSettingsRepository>();
+
+// Quiz Feature Repositories
+builder.Services.AddScoped<IQuizRepository, QuizRepository>();
+builder.Services.AddScoped<IQuizQuestionRepository, QuizQuestionRepository>();
+builder.Services.AddScoped<IStudentQuizAttemptRepository, StudentQuizAttemptRepository>();
+builder.Services.AddScoped<IStudentQuizAnswerRepository, StudentQuizAnswerRepository>();
+
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 
 // Schedule Transactions
@@ -153,18 +195,58 @@ builder.Services.Configure<EmailSettings>(builder.Configuration.GetSection("Emai
 builder.Services.Configure<OtpOptions>(builder.Configuration.GetSection("Otp"));
 builder.Services.Configure<SystemWalletOptions>(builder.Configuration.GetSection("SystemWallet"));
 builder.Services.Configure<MomoOptions>(builder.Configuration.GetSection("Momo"));
+builder.Services.Configure<CommissionOptions>(builder.Configuration.GetSection("Commission"));
 
 builder.Services.AddHttpClient();
 
 // Redis (Azure Cache for Redis)
-builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
-{
-    var redisConfig = builder.Configuration.GetSection("Redis")["Configuration"];
-    if (string.IsNullOrWhiteSpace(redisConfig))
-        throw new InvalidOperationException("Redis configuration string is missing");
+var redisConnectionString = builder.Configuration.GetConnectionString("Redis");
 
-    return ConnectionMultiplexer.Connect(redisConfig);
-});
+if (!string.IsNullOrEmpty(redisConnectionString))
+{
+    // Đăng ký IConnectionMultiplexer (Dành cho OtpService và các service dùng Redis trực tiếp)
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    {
+        var configuration = ConfigurationOptions.Parse(redisConnectionString, true);
+        configuration.AbortOnConnectFail = false; // Quan trọng cho Azure để tránh lỗi timeout lúc khởi động
+        configuration.ConnectTimeout = 3000; // 3 seconds
+        configuration.SyncTimeout = 3000;
+        configuration.AsyncTimeout = 3000;
+        return ConnectionMultiplexer.Connect(configuration);
+    });
+
+    // Đăng ký IDistributedCache nếu bạn muốn dùng cache của .NET
+    builder.Services.AddStackExchangeRedisCache(options =>
+    {
+        options.Configuration = redisConnectionString;
+        options.InstanceName = "tpedu:";
+    });
+}
+else
+{
+    // Fallback to in-memory cache nếu không có Redis config
+    builder.Services.AddDistributedMemoryCache();
+    
+    // Tạo một mock IConnectionMultiplexer để tránh lỗi DI
+    // Lưu ý: OtpService sẽ không hoạt động nếu không có Redis thực sự
+    // Để chạy local không cần Redis, comment Redis connection string trong appsettings.Development.json
+    builder.Services.AddSingleton<IConnectionMultiplexer>(sp =>
+    {
+        // Tạm thời tạo mock connection để tránh lỗi DI khi chạy local
+        // Lưu ý: Các service dùng Redis (như OtpService) sẽ không hoạt động
+        try
+        {
+            // Thử connect với abortConnect=false để không block nếu không có Redis
+            return ConnectionMultiplexer.Connect("localhost:6379,abortConnect=false,connectTimeout=1000");
+        }
+        catch
+        {
+            // Nếu không connect được, vẫn trả về null để tránh crash
+            // Service sẽ handle null check
+            return null!;
+        }
+    });
+}
 
 // JWT
 var jwtKey = builder.Configuration["Jwt:Key"] ?? "";

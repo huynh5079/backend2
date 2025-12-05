@@ -1,9 +1,11 @@
 ﻿using BusinessLayer.DTOs.Admin.Parent;
+using BusinessLayer.DTOs.Profile;
+using BusinessLayer.Helper;
 using BusinessLayer.Service.Interface;
 using DataLayer.Entities;
 using DataLayer.Enum;
 using DataLayer.Repositories.Abstraction;
-using BusinessLayer.Helper;
+using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -254,6 +256,67 @@ namespace BusinessLayer.Service
             await _uow.ParentProfiles.RemoveAsync(link);
             await _uow.SaveChangesAsync();
             return (true, "đã hủy liên kết học sinh");
+        }
+
+        // list all children ids of a parent
+        public async Task<List<string>> GetChildrenIdsByParentUserIdAsync(string parentUserId)
+        {
+            // find all ParentProfile records for the parent
+            var parentProfiles = await _uow.ParentProfiles.GetAllAsync(p => p.UserId == parentUserId);
+
+            if (parentProfiles == null || !parentProfiles.Any())
+            {
+                return new List<string>();
+            }
+
+            // take lsit of LinkedStudentId
+            // filter null/empty and distinct to avoid duplicates
+            var childrenIds = parentProfiles
+                .Where(p => !string.IsNullOrEmpty(p.LinkedStudentId))
+                .Select(p => p.LinkedStudentId!)
+                .Distinct()
+                .ToList();
+
+            return childrenIds;
+        }
+
+        // check if a student profile is a child of a parent
+        public async Task<bool> IsChildOfParentAsync(string parentUserId, string studentProfileId)
+        {
+            var childrenIds = await GetChildrenIdsByParentUserIdAsync(parentUserId);
+            return childrenIds.Contains(studentProfileId);
+        }
+
+        // Trong ParentChildrenService
+        public async Task<List<ChildDto>> GetChildrenInfoByParentUserIdAsync(string parentUserId)
+        {
+            // Query bảng ParentProfile, Include sang StudentProfile -> User để lấy tên
+            var parentProfiles = await _uow.ParentProfiles.GetAllAsync(
+                filter: p => p.UserId == parentUserId && !string.IsNullOrEmpty(p.LinkedStudentId),
+                includes: query => query
+                    .Include(p => p.LinkedStudent)
+                        .ThenInclude(s => s.User) // Include User để lấy FullName
+            );
+
+            if (parentProfiles == null || !parentProfiles.Any())
+            {
+                return new List<ChildDto>();
+            }
+
+            // Map sang DTO
+            var children = parentProfiles
+                .Where(p => p.LinkedStudent != null)
+                .Select(p => new ChildDto
+                {
+                    StudentId = p.LinkedStudentId!,
+                    // Ưu tiên lấy FullName, nếu null thì lấy UserName
+                    FullName = p.LinkedStudent!.User?.UserName ?? p.LinkedStudent!.User?.Email ?? "Con yêu"
+                })
+                .GroupBy(c => c.StudentId) // GroupBy để loại trùng lặp (thay vì Distinct)
+                .Select(g => g.First())
+                .ToList();
+
+            return children;
         }
     }
 }

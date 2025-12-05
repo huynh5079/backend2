@@ -15,6 +15,9 @@ namespace BusinessLayer.DTOs.Schedule.TutorApplication
 
         // Tutor apply for request, no need cover letter,...
         // Agree with ClassRequest
+
+        // Add for link tranfer
+        public string? MeetingLink { get; set; }
     }
 
     public class TutorApplicationResponseDto
@@ -26,5 +29,8 @@ namespace BusinessLayer.DTOs.Schedule.TutorApplication
         public DateTime CreatedAt { get; set; }
         public string? TutorName { get; set; }
         public string? TutorAvatarUrl { get; set; }
+
+        // Add for link tranfer
+        public string? MeetingLink { get; set; }
     }
 }

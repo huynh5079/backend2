@@ -1,0 +1,141 @@
+<!doctype html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width" />
+    <title>Hóa đơn thanh toán</title>
+</head>
+
+<body style="margin:0;padding:24px;background:#f6f7fb;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">
+    <span
+        style="display:none!important;visibility:hidden;opacity:0;color:transparent;height:0;width:0;overflow:hidden;">
+        Hóa đơn thanh toán {{INVOICE_NUMBER}}
+    </span>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+        <tr>
+            <td align="center">
+                <table role="presentation" width="600"
+                    style="background:#ffffff;border-radius:12px;padding:32px;border:1px solid #e5e7eb;box-shadow:0 10px 30px rgba(0,0,0,.06);">
+                    <!-- Header -->
+                    <tr>
+                        <td>
+                            <div style="margin-bottom:24px;">
+                                <a href="{{BRAND_URL}}" style="text-decoration:none;border:none;">
+                                    <img src="{{LOGO_URL}}" alt="{{BRAND_NAME}}" width="120" height="36"
+                                        style="display:block;border:0;outline:none;text-decoration:none;" />
+                                </a>
+                            </div>
+                            <h1 style="margin:0 0 8px;font-size:24px;line-height:32px;color:#111827;font-weight:700;">
+                                Hóa đơn thanh toán
+                            </h1>
+                            <p style="margin:0;color:#6b7280;font-size:14px;">Số hóa đơn:
+                                <strong>{{INVOICE_NUMBER}}</strong>
+                            </p>
+                            <p style="margin:4px 0 0;color:#6b7280;font-size:14px;">Ngày thanh toán:
+                                <strong>{{PAYMENT_DATE}}</strong>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>
+                            <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+                        </td>
+                    </tr>
+
+                    <!-- Customer Info -->
+                    <tr>
+                        <td>
+                            <h2 style="margin:0 0 12px;font-size:16px;color:#111827;font-weight:600;">Thông tin khách
+                                hàng</h2>
+                            <div style="background:#f9fafb;border-radius:8px;padding:16px;margin-bottom:24px;">
+                                <p style="margin:0 0 8px;color:#374151;font-size:14px;"><strong>Tên:</strong>
+                                    {{CUSTOMER_NAME}}</p>
+                                <p style="margin:0 0 8px;color:#374151;font-size:14px;"><strong>Email:</strong>
+                                    {{CUSTOMER_EMAIL}}</p>
+                                {{CLASS_INFO}}
+                            </div>
+                        </td>
+                    </tr>
+
+                    <!-- Payment Details -->
+                    <tr>
+                        <td>
+                            <h2 style="margin:0 0 12px;font-size:16px;color:#111827;font-weight:600;">Chi tiết thanh
+                                toán</h2>
+                            <table role="presentation" width="100%" cellpadding="0" cellspacing="0"
+                                style="border-collapse:collapse;">
+                                <tr>
+                                    <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span style="color:#6b7280;font-size:14px;">Mã đơn hàng:</span>
+                                    </td>
+                                    <td align="right" style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span style="color:#111827;font-size:14px;font-weight:500;">{{ORDER_ID}}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span style="color:#6b7280;font-size:14px;">Phương thức thanh toán:</span>
+                                    </td>
+                                    <td align="right" style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span
+                                            style="color:#111827;font-size:14px;font-weight:500;">{{PAYMENT_METHOD}}</span>
+                                    </td>
+                                </tr>
+                                {{TRANSACTION_ID_ROW}}
+                                <tr>
+                                    <td style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span style="color:#6b7280;font-size:14px;">Mô tả:</span>
+                                    </td>
+                                    <td align="right" style="padding:12px 0;border-bottom:1px solid #e5e7eb;">
+                                        <span
+                                            style="color:#111827;font-size:14px;font-weight:500;">{{DESCRIPTION}}</span>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding:16px 0;">
+                                        <span style="color:#111827;font-size:18px;font-weight:700;">Tổng tiền:</span>
+                                    </td>
+                                    <td align="right" style="padding:16px 0;">
+                                        <span
+                                            style="color:#4F46E5;font-size:24px;font-weight:700;">{{TOTAL_AMOUNT}}</span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <td>
+                            <hr style="border:none;border-top:1px solid #e5e7eb;margin:24px 0;" />
+                        </td>
+                    </tr>
+
+                    <!-- Footer -->
+                    <tr>
+                        <td>
+                            <p style="margin:0 0 16px;color:#6b7280;font-size:14px;line-height:1.6;">
+                                Cảm ơn bạn đã sử dụng dịch vụ của {{BRAND_NAME}}!
+                            </p>
+                            <p style="margin:0 0 8px;color:#6b7280;font-size:14px;">
+                                Cần hỗ trợ?
+                                <a href="mailto:{{SUPPORT_EMAIL}}"
+                                    style="color:#4F46E5;text-decoration:none;">{{SUPPORT_EMAIL}}</a>.
+                            </p>
+                            <hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0 8px" />
+                            <div style="text-align:center;color:#9ca3af;font-size:12px;line-height:1.6">
+                                © {{YEAR}} {{BRAND_NAME}}. Mọi quyền được bảo lưu.
+                            </div>
+                        </td>
+                    </tr>
+                </table>
+                <div style="max-width:600px;margin:10px auto 0;color:#9ca3af;font-size:11px;text-align:center">
+                    Email được gửi tự động từ hệ thống. Đừng trả lời email này.
+                </div>
+            </td>
+        </tr>
+    </table>
+</body>
+
+</html>

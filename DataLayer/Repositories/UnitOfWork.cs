@@ -37,6 +37,18 @@ namespace DataLayer.Repositories
         public IPaymentLogRepository PaymentLogs { get; }
         public IRescheduleRequestRepository RescheduleRequests { get; }
         public IMessageRepository Messages { get; }
+        public ICommissionRepository Commissions { get; }
+        public IFavoriteTutorRepository FavoriteTutors { get; }
+        public IConversationRepository Conversations { get; }
+        public ITutorDepositEscrowRepository TutorDepositEscrows { get; }
+        public ISystemSettingsRepository SystemSettings { get; }
+        
+        // Quiz Feature Repositories
+        public IQuizRepository Quizzes { get; }
+        public IQuizQuestionRepository QuizQuestions { get; }
+        public IStudentQuizAttemptRepository StudentQuizAttempts { get; }
+        public IStudentQuizAnswerRepository StudentQuizAnswers { get; }
+        public IClassRepository2 Classes2 { get; }
 
         public UnitOfWork(TpeduContext ctx,
                           IUserRepository users,
@@ -59,7 +71,17 @@ namespace DataLayer.Repositories
                           IPaymentRepository payments,
                           IPaymentLogRepository paymentLogs,
                           IRescheduleRequestRepository rescheduleRequests,
-                          IMessageRepository messages)
+                          IMessageRepository messages,
+                          ICommissionRepository commissions,
+                          IFavoriteTutorRepository favoriteTutors,
+                          IConversationRepository conversations,
+                          ITutorDepositEscrowRepository tutorDepositEscrows,
+                          ISystemSettingsRepository systemSettings,
+                          IQuizRepository quizzes,
+                          IQuizQuestionRepository quizQuestions,
+                          IStudentQuizAttemptRepository studentQuizAttempts,
+                          IStudentQuizAnswerRepository studentQuizAnswers,
+                          IClassRepository2 classes2)
         {
             _ctx = ctx;
             Users = users;
@@ -83,6 +105,16 @@ namespace DataLayer.Repositories
             PaymentLogs = paymentLogs;
             RescheduleRequests = rescheduleRequests;
             Messages = messages;
+            Commissions = commissions;
+            FavoriteTutors = favoriteTutors;
+            Conversations = conversations;
+            TutorDepositEscrows = tutorDepositEscrows;
+            SystemSettings = systemSettings;
+            Quizzes = quizzes;
+            QuizQuestions = quizQuestions;
+            StudentQuizAttempts = studentQuizAttempts;
+            StudentQuizAnswers = studentQuizAnswers;
+            Classes2 = classes2;
         }
 
         public Task<int> SaveChangesAsync() => _ctx.SaveChangesAsync();

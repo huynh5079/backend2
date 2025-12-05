@@ -55,6 +55,7 @@ namespace BusinessLayer.DTOs.Profile
         public string? TeachingLevel { get; set; }
         public string? SpecialSkills { get; set; }
         public double? Rating { get; set; }
+        public string? ReviewStatus { get; set; }
 
         // Chứng chỉ/CMND… (nếu bạn cần show)
         public List<MediaItemDto> Certificates { get; set; } = new();

@@ -3,6 +3,7 @@ using BusinessLayer.Service.Interface;
 using BusinessLayer.Service.Interface.IScheduleService;
 using DataLayer.Entities;
 using DataLayer.Enum;
+using DataLayer.Repositories.Abstraction;
 using DataLayer.Repositories.Abstraction.Schedule;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -16,23 +17,29 @@ namespace BusinessLayer.Service.ScheduleService
     public class TutorApplicationService : ITutorApplicationService
     {
         private readonly IScheduleUnitOfWork _uow;
+        private readonly IUnitOfWork _mainUow;
         private readonly TpeduContext _context;
         private readonly ITutorProfileService _tutorProfileService;
         private readonly IStudentProfileService _studentProfileService;
         private readonly IScheduleGenerationService _scheduleGenerationService;
+        private readonly INotificationService _notificationService;
 
         public TutorApplicationService(
             IScheduleUnitOfWork uow,
+            IUnitOfWork mainUow,
             TpeduContext context,
             ITutorProfileService tutorProfileService,
             IStudentProfileService studentProfileService,
-            IScheduleGenerationService scheduleGenerationService)
+            IScheduleGenerationService scheduleGenerationService,
+            INotificationService notificationService)
         {
             _uow = uow;
+            _mainUow = mainUow;
             _context = context;
             _tutorProfileService = tutorProfileService;
             _studentProfileService = studentProfileService;
             _scheduleGenerationService = scheduleGenerationService;
+            _notificationService = notificationService;
         }
 
         #region Tutor's Actions
@@ -44,7 +51,9 @@ namespace BusinessLayer.Service.ScheduleService
                 throw new UnauthorizedAccessException("Tài khoản gia sư không hợp lệ.");
 
             // Check if ClassRequest exists and is Active   
-            var classRequest = await _uow.ClassRequests.GetByIdAsync(dto.ClassRequestId);
+            var classRequest = await _uow.ClassRequests.GetAsync(
+                filter: cr => cr.Id == dto.ClassRequestId,
+                includes: q => q.Include(cr => cr.Student).ThenInclude(s => s.User));
             if (classRequest == null)
                 throw new KeyNotFoundException("Không tìm thấy yêu cầu lớp học.");
             //if (classRequest.Status != ClassRequestStatus.Pending)
@@ -62,11 +71,40 @@ namespace BusinessLayer.Service.ScheduleService
                 Id = Guid.NewGuid().ToString(),
                 TutorId = tutorProfileId,
                 ClassRequestId = dto.ClassRequestId,
-                Status = ApplicationStatus.Pending
+                Status = ApplicationStatus.Pending,
+                MeetingLink = dto.MeetingLink
             };
 
             await _uow.TutorApplications.CreateAsync(newApplication); // Unsave
             await _uow.SaveChangesAsync(); // Save
+
+            // Gửi notification cho student khi có gia sư mới apply vào request
+            if (classRequest.StudentId != null)
+            {
+                var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(classRequest.StudentId);
+                if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId))
+                {
+                    try
+                    {
+                        // Lấy thông tin tutor để lấy tên
+                        var tutorProfile = await _mainUow.TutorProfiles.GetAsync(
+                            filter: t => t.Id == tutorProfileId,
+                            includes: q => q.Include(t => t.User));
+                        var tutorName = tutorProfile?.User?.UserName ?? "một gia sư";
+                        var notification = await _notificationService.CreateAccountNotificationAsync(
+                            studentProfile.UserId,
+                            NotificationType.TutorApplicationReceived,
+                            $"{tutorName} đã ứng tuyển vào yêu cầu lớp học của bạn. Vui lòng xem xét và chấp nhận.",
+                            dto.ClassRequestId);
+                        await _uow.SaveChangesAsync();
+                        await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, notification);
+                    }
+                    catch (Exception notifEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                    }
+                }
+            }
 
             return MapToResponseDto(newApplication); // DTO
         }
@@ -103,7 +141,9 @@ namespace BusinessLayer.Service.ScheduleService
                 includes: q => q.Include(a => a.Tutor).ThenInclude(t => t.User) // Include để lấy tên
             );
 
-            return applications.Select(MapToResponseDto);
+            return applications
+                .OrderByDescending(a => a.CreatedAt)
+                .Select(MapToResponseDto);
         }
 
         #endregion
@@ -152,6 +192,9 @@ namespace BusinessLayer.Service.ScheduleService
                     // if (!paymentResult.IsSuccess)
                     // throw new InvalidOperationException(paymentResult.Message);
 
+                    // Kiểm tra duplicate class trước khi tạo
+                    await CheckForDuplicateClassFromRequestAsync(application.TutorId, request);
+
                     // --- START CREATE NEW CLASS ---
 
                     // CREATE CLASS
@@ -162,15 +205,18 @@ namespace BusinessLayer.Service.ScheduleService
                         Title = $"Lớp {request.Subject} (từ yêu cầu {request.Id})",
                         Description = $"{request.Description}\n\nYêu cầu đặc biệt: {request.SpecialRequirements}",
                         Price = request.Budget,
-                        Status = ClassStatus.Ongoing, // Class starts now
+                        Status = ClassStatus.Pending, // Chờ học sinh thanh toán - sẽ chuyển Ongoing khi đã thanh toán + đặt cọc
                         Location = request.Location,
                         Mode = request.Mode,
                         Subject = request.Subject,
                         EducationLevel = request.EducationLevel,
                         ClassStartDate = request.ClassStartDate,
-                        OnlineStudyLink = request.OnlineStudyLink,
                         StudentLimit = 1, // 1-1
-                        CurrentStudentCount = 1 
+                        CurrentStudentCount = 1 ,
+
+                        OnlineStudyLink = !string.IsNullOrEmpty(application.MeetingLink)
+                                            ? application.MeetingLink
+                                            : request.OnlineStudyLink
                     };
                     await _uow.Classes.CreateAsync(newClass); // no save
 
@@ -180,8 +226,8 @@ namespace BusinessLayer.Service.ScheduleService
                         Id = Guid.NewGuid().ToString(),
                         ClassId = newClass.Id,
                         StudentId = studentProfileId,
-                        PaymentStatus = PaymentStatus.Paid, // payment was made in step 3
-                        ApprovalStatus = ApprovalStatus.Approved,
+                        PaymentStatus = PaymentStatus.Pending, // Chưa thanh toán - sẽ thanh toán qua /escrow/pay
+                        ApprovalStatus = ApprovalStatus.Approved, // Tutor đã apply + được HS chọn = Approved
                         EnrolledAt = DateTime.UtcNow
                     };
                     await _uow.ClassAssigns.CreateAsync(newAssignment); // Unsave
@@ -200,12 +246,12 @@ namespace BusinessLayer.Service.ScheduleService
 
                     // UPDATE STATUS (Close Request and Application)
                     application.Status = ApplicationStatus.Accepted;
-                    request.Status = ClassRequestStatus.Ongoing; // Paid and studying
+                    request.Status = ClassRequestStatus.Matched; // Matched tutor to prevent more applications
 
                     await _uow.TutorApplications.UpdateAsync(application); // Unsave
                     await _uow.ClassRequests.UpdateAsync(request); // Unsave
 
-                    // CREATE CALENDAR (LESSONS AND SCHEDULE ENTRIES)
+                    // create schedule for class based on request schedule
                     await _scheduleGenerationService.GenerateScheduleFromRequestAsync(
                         newClass.Id,
                         application.TutorId,
@@ -218,6 +264,47 @@ namespace BusinessLayer.Service.ScheduleService
 
                     // Commit transaction
                     await transaction.CommitAsync();
+
+                    // Gửi notification cho tutor khi application được accept
+                    var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(application.TutorId);
+                    if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
+                    {
+                        try
+                        {
+                            var notification = await _notificationService.CreateAccountNotificationAsync(
+                                tutorProfile.UserId,
+                                NotificationType.TutorApplicationAccepted,
+                                $"Đơn ứng tuyển của bạn đã được chấp nhận. Lớp học đã được tạo.",
+                                newClass.Id);
+                            await _uow.SaveChangesAsync();
+                            await _notificationService.SendRealTimeNotificationAsync(tutorProfile.UserId, notification);
+                        }
+                        catch (Exception notifEx)
+                        {
+                            // Log nhưng không throw để không ảnh hưởng đến business logic
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
+
+                    // Gửi notification cho student khi accept application và class được tạo
+                    var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(studentProfileId);
+                    if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId))
+                    {
+                        try
+                        {
+                            var classCreatedNotification = await _notificationService.CreateAccountNotificationAsync(
+                                studentProfile.UserId,
+                                NotificationType.ClassCreatedFromRequest,
+                                "Lớp học đã được tạo từ yêu cầu của bạn. Vui lòng thanh toán để bắt đầu học.",
+                                newClass.Id);
+                            await _uow.SaveChangesAsync();
+                            await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, classCreatedNotification);
+                        }
+                        catch (Exception notifEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
                 }
                 catch (Exception)
                 {
@@ -251,6 +338,28 @@ namespace BusinessLayer.Service.ScheduleService
 
             await _uow.TutorApplications.UpdateAsync(application); // Unsave
             await _uow.SaveChangesAsync(); // Save
+
+            // Gửi notification cho tutor khi application bị reject
+            var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(application.TutorId);
+            if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
+            {
+                try
+                {
+                    var notification = await _notificationService.CreateAccountNotificationAsync(
+                        tutorProfile.UserId,
+                        NotificationType.TutorApplicationRejected,
+                        $"Đơn ứng tuyển của bạn đã bị từ chối.",
+                        application.Id);
+                    await _uow.SaveChangesAsync();
+                    await _notificationService.SendRealTimeNotificationAsync(tutorProfile.UserId, notification);
+                }
+                catch (Exception notifEx)
+                {
+                    // Log nhưng không throw để không ảnh hưởng đến business logic
+                    System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                }
+            }
+
             return true;
         }
 
@@ -271,7 +380,9 @@ namespace BusinessLayer.Service.ScheduleService
                 includes: q => q.Include(a => a.Tutor).ThenInclude(t => t.User) // Include to get name, avatar
             );
 
-            return applications.Select(MapToResponseDto);
+            return applications
+                .OrderByDescending(a => a.CreatedAt)
+                .Select(MapToResponseDto);
         }
 
         #endregion
@@ -288,8 +399,75 @@ namespace BusinessLayer.Service.ScheduleService
                 Status = app.Status,
                 CreatedAt = app.CreatedAt,
                 TutorName = app.Tutor?.User?.UserName, // Include to get name, avatar
-                TutorAvatarUrl = app.Tutor?.User?.AvatarUrl // Include to get name, avatar
+                TutorAvatarUrl = app.Tutor?.User?.AvatarUrl, // Include to get name, avatar
+
+                // Update for link tranfer
+                MeetingLink = app.MeetingLink
             };
+        }
+
+        /// <summary>
+        /// Kiểm tra duplicate class khi tạo từ ClassRequest (trong TutorApplication)
+        /// </summary>
+        private async Task CheckForDuplicateClassFromRequestAsync(string tutorId, ClassRequest request)
+        {
+            if (request.Budget == null)
+                return; // Không kiểm tra nếu không có budget
+
+            // Tìm các lớp học của cùng gia sư với cùng môn học, cấp độ và mode
+            var existingClasses = await _uow.Classes.GetAllAsync(
+                filter: c => c.TutorId == tutorId
+                           && c.Subject == request.Subject
+                           && c.EducationLevel == request.EducationLevel
+                           && c.Mode == request.Mode
+                           && c.DeletedAt == null
+                           && (c.Status == ClassStatus.Pending || c.Status == ClassStatus.Active || c.Status == ClassStatus.Ongoing),
+                includes: q => q.Include(c => c.ClassSchedules)
+            );
+
+            if (!existingClasses.Any())
+                return; // Không có lớp nào tương tự
+
+            // Kiểm tra giá tương tự (trong khoảng ±10%)
+            decimal priceTolerance = request.Budget.Value * 0.1m;
+            var similarPriceClasses = existingClasses
+                .Where(c => c.Price.HasValue && Math.Abs(c.Price.Value - request.Budget.Value) <= priceTolerance)
+                .ToList();
+
+            if (!similarPriceClasses.Any())
+                return; // Không có lớp nào có giá tương tự
+
+            // Kiểm tra lịch học trùng lặp
+            if (request.ClassRequestSchedules == null || !request.ClassRequestSchedules.Any())
+                return;
+
+            foreach (var existingClass in similarPriceClasses)
+            {
+                if (existingClass.ClassSchedules == null || !existingClass.ClassSchedules.Any())
+                    continue;
+
+                // So sánh từng lịch học trong request với các lịch học trong lớp hiện có
+                foreach (var newSchedule in request.ClassRequestSchedules)
+                {
+                    foreach (var existingSchedule in existingClass.ClassSchedules)
+                    {
+                        // Kiểm tra cùng ngày trong tuần
+                        if (existingSchedule.DayOfWeek == newSchedule.DayOfWeek)
+                        {
+                            // Kiểm tra thời gian chồng chéo
+                            if (newSchedule.StartTime < existingSchedule.EndTime && 
+                                existingSchedule.StartTime < newSchedule.EndTime)
+                            {
+                                throw new InvalidOperationException(
+                                    $"Đã tồn tại lớp học tương tự (ID: {existingClass.Id}, Tiêu đề: {existingClass.Title}) " +
+                                    $"với cùng môn học, cấp độ, mode và lịch học trùng lặp vào {(DayOfWeek)newSchedule.DayOfWeek} " +
+                                    $"từ {newSchedule.StartTime:hh\\:mm} đến {newSchedule.EndTime:hh\\:mm}. " +
+                                    "Vui lòng kiểm tra lại hoặc hủy lớp học trùng lặp trước khi tạo lớp mới.");
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         #endregion

@@ -27,6 +27,7 @@ namespace TPEdu_API.Controllers
             _tutorProfileService = tutorProfileService;
         }
 
+        #region Student & Parent Actions
         /// <summary>
         /// [Student] Tạo một request (direct hoặc marketplace).
         /// </summary>
@@ -112,7 +113,9 @@ namespace TPEdu_API.Controllers
             var result = await _classRequestService.GetMyClassRequestsAsync(userId, role);
             return Ok(result);
         }
+        #endregion
 
+        #region Tutor Actions
         /// <summary>
         /// [Tutor] Lấy các request "Direct" (gửi thẳng) đến TÔI.
         /// </summary>
@@ -133,18 +136,38 @@ namespace TPEdu_API.Controllers
         /// </summary>
         [HttpPatch("{id}/respond")]
         [Authorize(Roles = "Tutor")]
-        public async Task<IActionResult> RespondToDirectRequest(string id, [FromQuery] bool accept)
+        public async Task<IActionResult> RespondToDirectRequest(
+            string id, 
+            [FromQuery] bool accept,
+            [FromBody] UpdateStatusDto? dto = null)
         {
 
                 var tutorUserId = User.GetUserId();
                 if (tutorUserId == null)
                     return Unauthorized(new { message = "Token không hợp lệ." });
 
-                await _classRequestService.RespondToDirectRequestAsync(tutorUserId, id, accept);
-                return Ok(new { message = $"Đã {(accept ? "chấp nhận" : "từ chối")} yêu cầu." });
+                var classId = await _classRequestService.RespondToDirectRequestAsync(
+                    tutorUserId, 
+                    id, 
+                    accept,
+                    dto?.MeetingLink);
+                
+                if (accept && !string.IsNullOrEmpty(classId))
+                {
+                    return Ok(new { 
+                        message = "Đã chấp nhận yêu cầu.",
+                        classId = classId // Trả về ClassId để học sinh dùng cho thanh toán
+                    });
+                }
+                else
+                {
+                    return Ok(new { message = "Đã từ chối yêu cầu." });
+                }
 
         }
+        #endregion
 
+        #region Public Actions
         /// <summary>
         /// [Public] Lấy các request trên "Marketplace" (có phân trang).
         /// </summary>
@@ -174,6 +197,7 @@ namespace TPEdu_API.Controllers
                 return NotFound(new { message = "Không tìm thấy yêu cầu." });
             return Ok(result);
         }
+        #endregion
 
         /// <summary>
         /// [Admin] Cập nhật trạng thái của một request.

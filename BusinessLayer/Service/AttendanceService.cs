@@ -16,11 +16,13 @@ namespace BusinessLayer.Service
     {
         private readonly IUnitOfWork _uow;
         private readonly TpeduContext _ctx;
+        private readonly INotificationService _notificationService;
 
-        public AttendanceService(IUnitOfWork uow, TpeduContext ctx)
+        public AttendanceService(IUnitOfWork uow, TpeduContext ctx, INotificationService notificationService)
         {
             _uow = uow;
             _ctx = ctx;
+            _notificationService = notificationService;
         }
 
         public async Task<AttendanceRecordDto> MarkAsync(string tutorUserId, MarkAttendanceRequest req)
@@ -80,6 +82,33 @@ namespace BusinessLayer.Service
             }
 
             await _uow.SaveChangesAsync();
+
+            // Gửi notification cho student khi attendance được mark
+            if (!string.IsNullOrEmpty(student.UserId))
+            {
+                try
+                {
+                    var statusText = status switch
+                    {
+                        AttendanceStatus.Present => "Có mặt",
+                        AttendanceStatus.Late => "Đi muộn",
+                        AttendanceStatus.Absent => "Vắng mặt",
+                        AttendanceStatus.Excused => "Có phép",
+                        _ => "Đã điểm danh"
+                    };
+                    var notification = await _notificationService.CreateAccountNotificationAsync(
+                        student.UserId,
+                        NotificationType.AttendanceMarked,
+                        $"Điểm danh: {statusText}.{(string.IsNullOrWhiteSpace(req.Notes) ? "" : $" Ghi chú: {req.Notes}")}",
+                        req.LessonId);
+                    await _uow.SaveChangesAsync();
+                    await _notificationService.SendRealTimeNotificationAsync(student.UserId, notification);
+                }
+                catch (Exception notifEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                }
+            }
 
             var studentUser = await _uow.Users.GetByIdAsync(student.UserId!);
             return new AttendanceRecordDto
@@ -169,15 +198,50 @@ namespace BusinessLayer.Service
 
             await _uow.SaveChangesAsync();
 
-            // Fill tên HS
+            // Gửi notification cho từng student khi attendance được mark
             if (result.Count > 0)
             {
                 var stuIds = result.Select(r => r.StudentId).Distinct().ToList();
-                var users = await _ctx.StudentProfiles
+                var studentProfiles = await _ctx.StudentProfiles
                     .Where(s => stuIds.Contains(s.Id))
                     .Include(s => s.User)
-                    .ToDictionaryAsync(s => s.Id, s => s.User?.UserName ?? "Student");
+                    .ToListAsync();
 
+                foreach (var studentProfile in studentProfiles)
+                {
+                    if (!string.IsNullOrEmpty(studentProfile.UserId))
+                    {
+                        try
+                        {
+                            var studentResult = result.FirstOrDefault(r => r.StudentId == studentProfile.Id);
+                            if (studentResult != null)
+                            {
+                                var statusText = studentResult.Status switch
+                                {
+                                    "Present" => "Có mặt",
+                                    "Late" => "Đi muộn",
+                                    "Absent" => "Vắng mặt",
+                                    "Excused" => "Có phép",
+                                    _ => "Đã điểm danh"
+                                };
+                                var notification = await _notificationService.CreateAccountNotificationAsync(
+                                    studentProfile.UserId,
+                                    NotificationType.AttendanceMarked,
+                                    $"Điểm danh: {statusText}.{(string.IsNullOrWhiteSpace(studentResult.Notes) ? "" : $" Ghi chú: {studentResult.Notes}")}",
+                                    lessonId);
+                                await _uow.SaveChangesAsync();
+                                await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, notification);
+                            }
+                        }
+                        catch (Exception notifEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
+                }
+
+                // Fill tên HS
+                var users = studentProfiles.ToDictionary(s => s.Id, s => s.User?.UserName ?? "Student");
                 foreach (var r in result)
                 {
                     if (users.TryGetValue(r.StudentId, out var name))

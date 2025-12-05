@@ -150,6 +150,10 @@ namespace BusinessLayer.Service
                     "Chuyển tiền thành công",
                     $"Bạn đã chuyển {formattedAmount} thành công.{(string.IsNullOrWhiteSpace(note) ? "" : $" Ghi chú: {note}")}"
                 ),
+                NotificationType.PaymentFailed => (
+                    "Thanh toán thất bại",
+                    $"Thanh toán {formattedAmount} đã thất bại.{(string.IsNullOrWhiteSpace(note) ? " Vui lòng thử lại." : $" {note}")}"
+                ),
                 _ => ("Thông báo ví", $"Giao dịch {formattedAmount} đã được thực hiện.")
             };
         }
@@ -203,6 +207,62 @@ namespace BusinessLayer.Service
                 NotificationType.SystemAnnouncement => (
                     "Thông báo hệ thống",
                     "Hệ thống có thông báo mới."
+                ),
+                NotificationType.TutorApplicationReceived => (
+                    "Có gia sư mới ứng tuyển",
+                    $"Có gia sư mới đã ứng tuyển vào yêu cầu lớp học của bạn.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.TutorApplicationAccepted => (
+                    "Đơn ứng tuyển được chấp nhận",
+                    $"Đơn ứng tuyển của bạn đã được học sinh chấp nhận.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.TutorApplicationRejected => (
+                    "Đơn ứng tuyển bị từ chối",
+                    $"Đơn ứng tuyển của bạn đã bị từ chối.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.ClassRequestReceived => (
+                    "Có yêu cầu lớp học mới",
+                    $"Có học sinh mới đã gửi yêu cầu lớp học cho bạn.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.ClassRequestAccepted => (
+                    "Yêu cầu lớp học được chấp nhận",
+                    $"Yêu cầu lớp học của bạn đã được gia sư chấp nhận.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.ClassRequestRejected => (
+                    "Yêu cầu lớp học bị từ chối",
+                    $"Yêu cầu lớp học của bạn đã bị gia sư từ chối.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.ClassCreatedFromRequest => (
+                    "Lớp học đã được tạo",
+                    $"Lớp học đã được tạo từ yêu cầu của bạn.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.ClassEnrollmentSuccess => (
+                    "Ghi danh thành công",
+                    $"Bạn đã ghi danh vào lớp học thành công.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.StudentEnrolledInClass => (
+                    "Có học sinh mới ghi danh",
+                    $"Có học sinh mới đã ghi danh vào lớp học của bạn.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.LessonCompleted => (
+                    "Buổi học đã hoàn thành",
+                    $"Buổi học đã được đánh dấu hoàn thành.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.AttendanceMarked => (
+                    "Điểm danh đã được ghi nhận",
+                    $"Điểm danh của bạn đã được gia sư ghi nhận.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.TutorDepositRefunded => (
+                    "Hoàn tiền cọc",
+                    $"Tiền cọc của bạn đã được hoàn lại.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.TutorDepositForfeited => (
+                    "Tiền cọc bị tịch thu",
+                    $"Tiền cọc của bạn đã bị tịch thu.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
+                ),
+                NotificationType.FeedbackCreated => (
+                    "Có đánh giá mới",
+                    $"Bạn có đánh giá mới từ học sinh.{(string.IsNullOrWhiteSpace(reason) ? "" : $" {reason}")}"
                 ),
                 _ => ("Thông báo tài khoản", "Tài khoản của bạn vừa được cập nhật trạng thái.")
             };

@@ -16,7 +16,7 @@ namespace BusinessLayer.DTOs.Profile
         public DateOnly? DateOfBirth { get; set; }
 
         // Student fields
-        public string? EducationLevelId { get; set; }
+        public string? EducationLevel { get; set; }
         public string? PreferredSubjects { get; set; }
     }
 }

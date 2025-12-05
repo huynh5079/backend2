@@ -1,0 +1,93 @@
+image: mcr.microsoft.com/dotnet/sdk:8.0
+
+stages:
+  - build
+  - deploy
+
+variables:
+  # Đường dẫn tương đối từ thư mục gốc (nơi chứa file .gitlab-ci.yml) đến file .csproj
+  PROJECT_PATH: "TPEdu_API/TPEdu_API.csproj"
+  PUBLISH_DIR: "publish"
+
+# --- JOB 1: BUILD (Dùng block | an toàn) ---
+build_job:
+  stage: build
+  script: |
+    echo "=== DEBUG: STARTING BUILD ==="
+    echo "Current directory:"
+    pwd
+    echo "Listing files recursively to check path:"
+    ls -R
+    
+    echo "Restoring packages for $PROJECT_PATH..."
+    dotnet restore "$PROJECT_PATH"
+    
+    echo "Building..."
+    dotnet build "$PROJECT_PATH" -c Release --no-restore
+    
+    echo "Publishing..."
+    dotnet publish "$PROJECT_PATH" -c Release -o "$PUBLISH_DIR" --no-build
+  
+  artifacts:
+    paths:
+      - "$PUBLISH_DIR"
+    expire_in: 1 hour
+
+# --- JOB 2: DEPLOY (Dùng block | an toàn) ---
+deploy_azure:
+  stage: deploy
+  image: mcr.microsoft.com/azure-cli:latest
+  dependencies:
+    - build_job
+  script: |
+    echo "=== DEBUG: STARTING DEPLOY ==="
+    
+    echo "Installing tools..."
+    # Thử dùng tdnf (cho Azure CLI image mới nhất) hoặc apt-get fallback
+    if command -v tdnf &> /dev/null; then
+        tdnf install -y zip jq
+    elif command -v apk &> /dev/null; then
+        apk add --no-cache zip jq
+    elif command -v apt-get &> /dev/null; then
+        apt-get update && apt-get install -y zip jq
+    else
+        echo "ERROR: Cannot find package manager (tdnf/apk/apt-get). Skipping tool install."
+    fi
+    
+    echo "Logging into Azure..."
+    # Kiểm tra biến môi trường
+    if [ -z "$AZURE_CREDENTIALS" ]; then
+      echo "ERROR: AZURE_CREDENTIALS is empty!"
+      exit 1
+    fi
+
+    echo "$AZURE_CREDENTIALS" > azure_login.json
+    
+    # Nếu jq không cài được, ta dùng python để parse JSON (có sẵn trong image Azure CLI)
+    if ! command -v jq &> /dev/null; then
+        echo "jq not found, using python..."
+        CLIENT_ID=$(python3 -c "import sys, json; print(json.load(open('azure_login.json'))['clientId'])")
+        CLIENT_SECRET=$(python3 -c "import sys, json; print(json.load(open('azure_login.json'))['clientSecret'])")
+        TENANT_ID=$(python3 -c "import sys, json; print(json.load(open('azure_login.json'))['tenantId'])")
+        az login --service-principal -u $CLIENT_ID -p $CLIENT_SECRET --tenant $TENANT_ID
+    else
+        az login --service-principal -u $(jq -r .clientId azure_login.json) -p $(jq -r .clientSecret azure_login.json) --tenant $(jq -r .tenantId azure_login.json)
+    fi
+    
+    echo "Zipping files..."
+    cd "$PUBLISH_DIR"
+    
+    # Nếu zip không cài được, dùng lệnh nén có sẵn của python
+    if ! command -v zip &> /dev/null; then
+        echo "zip not found, using python..."
+        python3 -c "import shutil; shutil.make_archive('../app', 'zip', '.')"
+    else
+        zip -r ../app.zip .
+    fi
+    cd ..
+    
+    echo "Deploying to $AZURE_APP_NAME..."
+    az webapp deployment source config-zip --resource-group "$AZURE_RESOURCE_GROUP" --name "$AZURE_APP_NAME" --src app.zip
+  
+  only:
+    - develop

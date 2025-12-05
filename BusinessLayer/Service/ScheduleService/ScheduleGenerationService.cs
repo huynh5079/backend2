@@ -65,7 +65,7 @@ namespace BusinessLayer.Service.ScheduleService
         private async Task GenerateScheduleLogicAsync(string classId, string tutorId, DateTime startDate, IEnumerable<StandardScheduleRule> rules)
         {
             int totalSlotsToFind = rules.Count() * 4;
-            int searchDayLimit = 50;
+            int searchDayLimit = 100; // Tăng từ 50 lên 100 ngày để tìm đủ slot
 
             var foundSlots = await FindAvailableSlotsAsync(
                 tutorId, startDate, rules, totalSlotsToFind, searchDayLimit

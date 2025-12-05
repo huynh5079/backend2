@@ -36,6 +36,26 @@ namespace BusinessLayer.Service.Interface
         /// Lấy số tin nhắn chưa đọc
         /// </summary>
         Task<int> GetUnreadCountAsync(string userId);
+
+        /// <summary>
+        /// Gửi tin nhắn (hỗ trợ conversation và file)
+        /// </summary>
+        Task<MessageDto> SendMessageWithFileAsync(string senderId, SendMessageDto dto, Microsoft.AspNetCore.Http.IFormFile? file, System.Threading.CancellationToken ct = default);
+
+        /// <summary>
+        /// Lấy tin nhắn theo ConversationId
+        /// </summary>
+        Task<PaginationResult<MessageDto>> GetMessagesByConversationIdAsync(string conversationId, string userId, int page, int pageSize);
+
+        /// <summary>
+        /// Sửa tin nhắn
+        /// </summary>
+        Task<MessageDto> EditMessageAsync(string messageId, string userId, string newContent);
+
+        /// <summary>
+        /// Xóa tin nhắn
+        /// </summary>
+        Task<bool> DeleteMessageAsync(string messageId, string userId, bool deleteForEveryone);
     }
 }
 

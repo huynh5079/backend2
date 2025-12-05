@@ -3,11 +3,13 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using BusinessLayer.DTOs.Wallet;
+using BusinessLayer.Options;
 using BusinessLayer.Service.Interface;
 using DataLayer.Entities;
 using DataLayer.Enum;
 using DataLayer.Repositories.Abstraction;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 
 namespace BusinessLayer.Service
 {
@@ -15,11 +17,13 @@ namespace BusinessLayer.Service
     {
         private readonly IUnitOfWork _uow;
         private readonly INotificationService _notificationService;
+        private readonly SystemWalletOptions _systemWalletOptions;
 
-        public WalletService(IUnitOfWork uow, INotificationService notificationService)
+        public WalletService(IUnitOfWork uow, INotificationService notificationService, IOptions<SystemWalletOptions> systemWalletOptions)
         {
             _uow = uow;
             _notificationService = notificationService;
+            _systemWalletOptions = systemWalletOptions.Value;
         }
 
         // Controller gọi GetMyWalletAsync → alias sang GetOrCreate
@@ -269,6 +273,81 @@ namespace BusinessLayer.Service
                 
                 await tx.CommitAsync();
                 return new OperationResult { Status = "Ok" };
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return new OperationResult { Status = "Fail", Message = "Conflict, please retry" };
+            }
+        }
+
+        /// <summary>
+        /// User chuyển tiền của chính họ vào ví admin (dùng cho Student/Parent/Tutor)
+        /// API này tự động lấy SystemWalletUserId từ config, không cần userId của admin
+        /// Đảm bảo không làm mất ID admin vì tự động lấy từ SystemWalletOptions
+        /// </summary>
+        public async Task<OperationResult> TransferToAdminAsync(string userId, decimal amount, string? note, CancellationToken ct = default)
+        {
+            if (amount <= 0) return new OperationResult { Status = "Fail", Message = "Amount must be > 0" };
+            if (string.IsNullOrWhiteSpace(_systemWalletOptions.SystemWalletUserId))
+            {
+                return new OperationResult { Status = "Fail", Message = "System wallet user ID is not configured" };
+            }
+
+            using var tx = await _uow.BeginTransactionAsync();
+
+            var userWallet = await GetMyWalletAsync(userId, ct);
+            var adminWallet = await GetMyWalletAsync(_systemWalletOptions.SystemWalletUserId, ct);
+
+            if (userWallet.IsFrozen) return new OperationResult { Status = "Fail", Message = "Your wallet is frozen" };
+            if (adminWallet.IsFrozen) return new OperationResult { Status = "Fail", Message = "Admin wallet is frozen" };
+            if (userWallet.Balance < amount) return new OperationResult { Status = "Fail", Message = "Insufficient balance" };
+
+            userWallet.Balance -= amount;
+            adminWallet.Balance += amount;
+
+            await _uow.Wallets.Update(userWallet);
+            await _uow.Wallets.Update(adminWallet);
+
+            var userTransaction = new Transaction
+            {
+                WalletId = userWallet.Id,
+                Type = TransactionType.TransferOut,
+                Status = TransactionStatus.Succeeded,
+                Amount = amount,
+                Note = note ?? "Chuyển tiền vào ví admin",
+                CounterpartyUserId = _systemWalletOptions.SystemWalletUserId
+            };
+            await _uow.Transactions.AddAsync(userTransaction, ct);
+
+            var adminTransaction = new Transaction
+            {
+                WalletId = adminWallet.Id,
+                Type = TransactionType.TransferIn,
+                Status = TransactionStatus.Succeeded,
+                Amount = amount,
+                Note = note ?? $"Nhận tiền từ user {userId}",
+                CounterpartyUserId = userId
+            };
+            await _uow.Transactions.AddAsync(adminTransaction, ct);
+
+            try
+            {
+                await _uow.SaveChangesAsync();
+
+                var userNotification = await _notificationService.CreateWalletNotificationAsync(
+                    userId,
+                    NotificationType.WalletTransferOut,
+                    amount,
+                    note ?? "Chuyển tiền vào ví admin",
+                    userTransaction.Id,
+                    ct);
+
+                await _uow.SaveChangesAsync();
+
+                await _notificationService.SendRealTimeNotificationAsync(userId, userNotification, ct);
+
+                await tx.CommitAsync();
+                return new OperationResult { Status = "Ok", Message = "Chuyển tiền vào ví admin thành công" };
             }
             catch (DbUpdateConcurrencyException)
             {

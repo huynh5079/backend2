@@ -8,6 +8,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
+using static Microsoft.EntityFrameworkCore.DbLoggerCategory;
 
 namespace DataLayer.Repositories.Schedule
 {
@@ -102,6 +103,13 @@ namespace DataLayer.Repositories.Schedule
             {
                 q = q.Where(c => c.Status == status.Value);
             }
+            else
+            {
+                q = q.Where(c => c.Status == ClassStatus.Pending || c.Status == ClassStatus.Active);
+            }
+
+            q = q.Include(c => c.ClassSchedules)
+                 .Include(c => c.Tutor).ThenInclude(t => t.User);
 
             // Order by created date
             q = q.OrderByDescending(c => c.CreatedAt);

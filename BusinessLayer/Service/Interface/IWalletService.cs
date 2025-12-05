@@ -22,5 +22,9 @@ namespace BusinessLayer.Service.Interface
 
         // (Tuỳ chọn) Parent nạp cho Student
         Task<OperationResult> DepositForStudentAsync(string payerUserId, string studentUserId, decimal amount, string? note, CancellationToken ct = default);
+
+        // User chuyển tiền của chính họ vào ví admin (dùng cho Student/Parent/Tutor)
+        // API này tự động lấy SystemWalletUserId từ config, không cần userId của admin
+        Task<OperationResult> TransferToAdminAsync(string userId, decimal amount, string? note, CancellationToken ct = default);
     }
 }

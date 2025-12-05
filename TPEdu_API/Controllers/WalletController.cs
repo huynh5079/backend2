@@ -50,6 +50,7 @@ namespace TPEdu_API.Controllers
                 Type = t.Type.ToString(),
                 Amount = t.Amount,
                 Status = t.Status.ToString(),
+                Note = t.Note,
                 CreatedAt = t.CreatedAt
             });
             return Ok(new { items = transactions, page = pageNumber, size = pageSize, total });
@@ -78,6 +79,20 @@ namespace TPEdu_API.Controllers
         {
             var userId = User.RequireUserId();
             var result = await _walletService.TransferAsync(userId, dto.ToUserId, dto.Amount, dto.Note);
+            if (result.Status == "Fail") return BadRequest(result);
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// User chuyển tiền của chính họ vào ví admin (dùng cho Student/Parent/Tutor)
+        /// Đảm bảo không làm mất ID admin vì tự động lấy từ SystemWalletOptions
+        /// </summary>
+        [HttpPost("transfer-to-admin")]
+        [Authorize(Roles = "Student,Parent,Tutor")]
+        public async Task<IActionResult> TransferToAdmin([FromBody] DepositWithdrawDto dto)
+        {
+            var userId = User.RequireUserId();
+            var result = await _walletService.TransferToAdminAsync(userId, dto.Amount, dto.Note);
             if (result.Status == "Fail") return BadRequest(result);
             return Ok(result);
         }

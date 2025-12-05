@@ -33,6 +33,7 @@ namespace BusinessLayer.Storage
                 UploadContext.Certificate => _opt.Certificates,
                 UploadContext.Material => _opt.Materials,
                 UploadContext.IdentityDocument => _opt.IdentityDocuments,
+                UploadContext.Chat => _opt.Chat,
                 _ => "others"
             };
 

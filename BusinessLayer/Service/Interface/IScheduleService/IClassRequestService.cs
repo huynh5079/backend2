@@ -14,7 +14,10 @@ namespace BusinessLayer.Service.Interface.IScheduleService
 
         // --- TUTOR's Actions ---
         Task<IEnumerable<ClassRequestResponseDto>> GetDirectRequestsAsync(string tutorUserId);
-        Task<bool> RespondToDirectRequestAsync(string tutorUserId, string requestId, bool accept);
+        /// <summary>
+        /// Respond to direct request. Returns ClassId if accept=true, null if reject.
+        /// </summary>
+        Task<string?> RespondToDirectRequestAsync(string tutorUserId, string requestId, bool accept, string? meetingLink = null);
 
         // --- PUBLIC/SHARED Actions ---
         Task<ClassRequestResponseDto?> GetClassRequestByIdAsync(string id);

@@ -117,7 +117,8 @@ namespace BusinessLayer.Service
                 TeachingSubjects = tp?.TeachingSubjects,
                 TeachingLevel = tp?.TeachingLevel,
                 SpecialSkills = tp?.SpecialSkills,
-                Rating = tp?.Rating
+                Rating = tp?.Rating,
+                ReviewStatus = tp?.ReviewStatus.ToString()
             };
 
             // Media (nếu cần)
@@ -172,7 +173,7 @@ namespace BusinessLayer.Service
             await _uow.Users.UpdateAsync(user);
 
             var sp = await _uow.StudentProfiles.GetByUserIdAsync(userId) ?? new StudentProfile { UserId = userId };
-            //if (dto.EducationLevelId != null) sp.EducationLevelId = dto.EducationLevelId;
+            if (dto.EducationLevel != null) sp.EducationLevel = dto.EducationLevel;
             if (dto.PreferredSubjects != null) sp.PreferredSubjects = dto.PreferredSubjects;
 
             if (string.IsNullOrEmpty(sp.Id))

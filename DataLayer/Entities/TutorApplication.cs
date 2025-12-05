@@ -17,6 +17,9 @@ public partial class TutorApplication : BaseEntity
 
     public DateTime AppliedAt { get; set; }
 
+    // Add for link tranfer
+    public string? MeetingLink { get; set; }
+
     public virtual ClassRequest ClassRequest { get; set; } = null!;
 
     public virtual TutorProfile Tutor { get; set; } = null!;

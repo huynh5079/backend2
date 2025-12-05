@@ -60,6 +60,72 @@ namespace BusinessLayer.Service
             await smtp.DisconnectAsync(true);
         }
 
+        public async Task SendInvoiceEmailAsync(
+            string toEmail,
+            string customerName,
+            string invoiceNumber,
+            string orderId,
+            string? transactionId,
+            decimal amount,
+            string description,
+            string? classTitle = null,
+            string? classSubject = null)
+        {
+            string html = LoadTemplate("invoice.html");
+            
+            // Format amount as VND
+            var formattedAmount = amount.ToString("N0", new System.Globalization.CultureInfo("vi-VN")) + " VND";
+            
+            // Format payment date
+            var paymentDate = DateTime.Now.ToString("dd/MM/yyyy HH:mm", new System.Globalization.CultureInfo("vi-VN"));
+            
+            // Handle conditional class info block
+            var classInfoBlock = "";
+            if (!string.IsNullOrWhiteSpace(classTitle) || !string.IsNullOrWhiteSpace(classSubject))
+            {
+                classInfoBlock = $@"
+                                <p style=""margin:8px 0 0;color:#374151;font-size:14px;""><strong>Lớp học:</strong> {WebUtility.HtmlEncode(classTitle ?? "N/A")}</p>
+                                <p style=""margin:4px 0 0;color:#374151;font-size:14px;""><strong>Môn học:</strong> {WebUtility.HtmlEncode(classSubject ?? "N/A")}</p>";
+            }
+            
+            // Handle conditional transaction ID row
+            var transactionIdRow = "";
+            if (!string.IsNullOrWhiteSpace(transactionId))
+            {
+                transactionIdRow = $@"
+                                <tr>
+                                    <td style=""padding:12px 0;border-bottom:1px solid #e5e7eb;"">
+                                        <span style=""color:#6b7280;font-size:14px;"">Mã giao dịch:</span>
+                                    </td>
+                                    <td align=""right"" style=""padding:12px 0;border-bottom:1px solid #e5e7eb;"">
+                                        <span style=""color:#111827;font-size:14px;font-weight:500;"">{WebUtility.HtmlEncode(transactionId)}</span>
+                                    </td>
+                                </tr>";
+            }
+            
+            // Replace tokens
+            html = ReplaceTokens(html, new Dictionary<string, string>
+            {
+                ["BRAND_NAME"] = _cfg.SenderName ?? "TPEdu Center",
+                ["BRAND_URL"] = "#",
+                ["LOGO_URL"] = "https://res.cloudinary.com/dwmfmq5xa/image/upload/v1758521309/plugins_email-verification-plugin_m7tyci.png",
+                ["SUPPORT_EMAIL"] = _cfg.SenderEmail,
+                ["INVOICE_NUMBER"] = invoiceNumber,
+                ["PAYMENT_DATE"] = paymentDate,
+                ["CUSTOMER_NAME"] = WebUtility.HtmlEncode(customerName),
+                ["CUSTOMER_EMAIL"] = WebUtility.HtmlEncode(toEmail),
+                ["CLASS_INFO"] = classInfoBlock,
+                ["ORDER_ID"] = WebUtility.HtmlEncode(orderId),
+                ["TRANSACTION_ID_ROW"] = transactionIdRow,
+                ["PAYMENT_METHOD"] = "MoMo",
+                ["DESCRIPTION"] = WebUtility.HtmlEncode(description),
+                ["TOTAL_AMOUNT"] = formattedAmount,
+                ["YEAR"] = DateTime.Now.Year.ToString()
+            });
+
+            await SendAsync(toEmail, $"Hóa đơn thanh toán #{invoiceNumber}", html);
+        }
+
         // Helpers
         private string LoadTemplate(string fileName)
         {

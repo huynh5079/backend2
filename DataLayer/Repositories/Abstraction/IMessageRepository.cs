@@ -32,6 +32,16 @@ namespace DataLayer.Repositories.Abstraction
         /// Đánh dấu tất cả tin nhắn từ một user cụ thể là đã đọc
         /// </summary>
         Task MarkConversationAsReadAsync(string userId, string otherUserId);
+
+        /// <summary>
+        /// Lấy tin nhắn theo ConversationId (phân trang)
+        /// </summary>
+        Task<PaginationResult<Message>> GetMessagesByConversationIdAsync(string conversationId, int pageNumber, int pageSize);
+
+        /// <summary>
+        /// Đánh dấu tất cả tin nhắn trong conversation là đã đọc
+        /// </summary>
+        Task MarkConversationMessagesAsReadAsync(string conversationId, string userId);
     }
 }
 

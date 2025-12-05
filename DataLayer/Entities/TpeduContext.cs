@@ -37,6 +37,18 @@ public partial class TpeduContext : DbContext
     public virtual DbSet<Escrow> Escrows { get; set; }
     public virtual DbSet<Payment> Payments { get; set; }
     public virtual DbSet<PaymentLog> PaymentLogs { get; set; }
+    public virtual DbSet<Commission> Commissions { get; set; }
+    public virtual DbSet<Conversation> Conversations { get; set; }
+    public virtual DbSet<ConversationParticipant> ConversationParticipants { get; set; }
+    public virtual DbSet<FavoriteTutor> FavoriteTutors { get; set; }
+    public virtual DbSet<TutorDepositEscrow> TutorDepositEscrows { get; set; }
+    public virtual DbSet<SystemSettings> SystemSettings { get; set; }
+    
+    // Quiz feature DbSets
+    public virtual DbSet<Quiz> Quizzes { get; set; }
+    public virtual DbSet<QuizQuestion> QuizQuestions { get; set; }
+    public virtual DbSet<StudentQuizAttempt> StudentQuizAttempts { get; set; }
+    public virtual DbSet<StudentQuizAnswer> StudentQuizAnswers { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -282,18 +294,36 @@ public partial class TpeduContext : DbContext
 
             entity.HasIndex(e => e.ReceiverId, "IX_Message_ReceiverId");
             entity.HasIndex(e => e.SenderId, "IX_Message_SenderId");
+            entity.HasIndex(e => e.ConversationId, "IX_Message_ConversationId");
 
-            entity.Property(e => e.Content).HasMaxLength(1000);
+            entity.Property(e => e.Content).HasMaxLength(2000);
             entity.Property(e => e.CreatedAt).HasColumnType("datetime");
+            entity.Property(e => e.UpdatedAt).HasColumnType("datetime");
+            entity.Property(e => e.DeletedAt).HasColumnType("datetime");
             entity.Property(e => e.Status).HasMaxLength(255);
+            entity.Property(e => e.MessageType).HasConversion<string>().HasMaxLength(50).HasDefaultValue(MessageType.Text);
+            entity.Property(e => e.FileUrl).HasMaxLength(1024);
+            entity.Property(e => e.FileName).HasMaxLength(500);
+            entity.Property(e => e.MediaType).HasMaxLength(255);
+            entity.Property(e => e.FileSize).HasColumnType("bigint");
+            entity.Property(e => e.IsEdited).HasDefaultValue(false);
+            entity.Property(e => e.ConversationId).HasMaxLength(450);
 
             entity.HasOne(d => d.Receiver).WithMany(p => p.MessageReceivers)
                 .HasForeignKey(d => d.ReceiverId)
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK__Message__Receive__19DFD96B");
 
             entity.HasOne(d => d.Sender).WithMany(p => p.MessageSenders)
                 .HasForeignKey(d => d.SenderId)
+                .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK__Message__SenderI__18EBB532");
+
+            entity.HasOne(d => d.Conversation)
+                .WithMany(p => p.Messages)
+                .HasForeignKey(d => d.ConversationId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Message_Conversation");
         });
 
         modelBuilder.Entity<Notification>(entity =>
@@ -474,38 +504,81 @@ public partial class TpeduContext : DbContext
         {
             entity.HasKey(e => e.Id).HasName("PK__Escrow__Id");
             entity.ToTable("Escrow");
+            
             entity.Property(e => e.GrossAmount).HasColumnType("decimal(18,2)");
-            entity.Property(e => e.CommissionRate).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.CommissionRateSnapshot).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.ReleasedAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.RefundedAmount).HasColumnType("decimal(18,2)");
             entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(255);
+            
             entity.Property(e => e.ClassId).HasMaxLength(450);
-            entity.Property(e => e.PayerUserId).HasMaxLength(450);
-            entity.Property(e => e.TutorUserId)
-                  .HasMaxLength(450)
-                  .IsRequired(false);
-
-            entity.HasIndex(e => e.TutorUserId);
-            entity.HasOne(e => e.TutorUser)
-                  .WithMany()
-                  .HasForeignKey(e => e.TutorUserId)
-                  .OnDelete(DeleteBehavior.Restrict);
+            entity.Property(e => e.ClassAssignId).HasMaxLength(450);
+            entity.Property(e => e.StudentUserId).HasMaxLength(450);
+            entity.Property(e => e.TutorUserId).HasMaxLength(450).IsRequired();
 
             entity.HasIndex(e => e.ClassId);
+            entity.HasIndex(e => e.ClassAssignId);
+            entity.HasIndex(e => e.StudentUserId);
+            entity.HasIndex(e => e.TutorUserId);
+
             entity.HasOne(e => e.Class)
                   .WithMany()
                   .HasForeignKey(e => e.ClassId)
-                  .OnDelete(DeleteBehavior.Restrict);
-
-            entity.HasOne(e => e.PayerUser)
-                  .WithMany()
-                  .HasForeignKey(e => e.PayerUserId)
                   .OnDelete(DeleteBehavior.Restrict)
-                  .HasConstraintName("FK_Escrow_PayerUser");
+                  .HasConstraintName("FK_Escrow_Class");
+
+            entity.HasOne(e => e.ClassAssign)
+                  .WithMany()
+                  .HasForeignKey(e => e.ClassAssignId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("FK_Escrow_ClassAssign");
+
+            entity.HasOne(e => e.StudentUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.StudentUserId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("FK_Escrow_StudentUser");
 
             entity.HasOne(e => e.TutorUser)
                   .WithMany()
                   .HasForeignKey(e => e.TutorUserId)
                   .OnDelete(DeleteBehavior.Restrict)
                   .HasConstraintName("FK_Escrow_TutorUser");
+        });
+
+        modelBuilder.Entity<TutorDepositEscrow>(entity =>
+        {
+            entity.ToTable("TutorDepositEscrow");
+
+            entity.HasIndex(e => e.ClassId, "IX_TutorDepositEscrow_ClassId");
+            entity.HasIndex(e => e.EscrowId, "IX_TutorDepositEscrow_EscrowId");
+            entity.HasIndex(e => e.TutorUserId, "IX_TutorDepositEscrow_TutorUserId");
+
+            entity.Property(e => e.ClassId).HasMaxLength(450);
+            entity.Property(e => e.EscrowId).HasMaxLength(450);
+            entity.Property(e => e.TutorUserId).HasMaxLength(450);
+            entity.Property(e => e.DepositAmount).HasColumnType("decimal(18,2)");
+            entity.Property(e => e.DepositRateSnapshot).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.Status).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.ForfeitReason).HasMaxLength(1000);
+
+            entity.HasOne(e => e.Class)
+                  .WithMany()
+                  .HasForeignKey(e => e.ClassId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("FK_TutorDepositEscrow_Class");
+
+            entity.HasOne(e => e.Escrow)
+                  .WithMany()
+                  .HasForeignKey(e => e.EscrowId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("FK_TutorDepositEscrow_Escrow");
+
+            entity.HasOne(e => e.TutorUser)
+                  .WithMany()
+                  .HasForeignKey(e => e.TutorUserId)
+                  .OnDelete(DeleteBehavior.Restrict)
+                  .HasConstraintName("FK_TutorDepositEscrow_TutorUser");
         });
         
         modelBuilder.Entity<Payment>(entity =>
@@ -658,7 +731,207 @@ public partial class TpeduContext : DbContext
                 .HasForeignKey(d => d.UserId)
                 .HasConstraintName("FK_Wallet_User");
         });
+
+        modelBuilder.Entity<Commission>(entity =>
+        {
+            entity.ToTable("Commission");
+
+            entity.Property(e => e.OneToOneOnline).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.OneToOneOffline).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.GroupClassOnline).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.GroupClassOffline).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+        });
+
+        modelBuilder.Entity<SystemSettings>(entity =>
+        {
+            entity.ToTable("SystemSettings");
+
+            entity.Property(e => e.DepositRate).HasColumnType("decimal(5,4)");
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+        });
+
+        modelBuilder.Entity<Conversation>(entity =>
+        {
+            entity.ToTable("Conversation");
+
+            entity.HasIndex(e => e.ClassId, "IX_Conversation_ClassId");
+            entity.HasIndex(e => e.ClassRequestId, "IX_Conversation_ClassRequestId");
+            entity.HasIndex(e => e.Type, "IX_Conversation_Type");
+
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Type).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.ClassId).HasMaxLength(450);
+            entity.Property(e => e.ClassRequestId).HasMaxLength(450);
+            entity.Property(e => e.LastMessageAt).HasDefaultValueSql("(getdate())");
+
+            entity.HasOne(d => d.Class)
+                .WithMany()
+                .HasForeignKey(d => d.ClassId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Conversation_Class");
+
+            entity.HasOne(d => d.ClassRequest)
+                .WithMany()
+                .HasForeignKey(d => d.ClassRequestId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_Conversation_ClassRequest");
+        });
+
+        modelBuilder.Entity<ConversationParticipant>(entity =>
+        {
+            entity.ToTable("ConversationParticipant");
+
+            entity.HasIndex(e => new { e.ConversationId, e.UserId })
+                .IsUnique()
+                .HasDatabaseName("UQ_ConversationParticipant_Conversation_User");
+
+            entity.HasIndex(e => e.ConversationId, "IX_ConversationParticipant_ConversationId");
+            entity.HasIndex(e => e.UserId, "IX_ConversationParticipant_UserId");
+
+            entity.Property(e => e.ConversationId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.UserId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.Role).HasMaxLength(50).HasDefaultValue("Member");
+            entity.Property(e => e.JoinedAt).HasDefaultValueSql("(getdate())");
+            entity.Property(e => e.UnreadCount).HasDefaultValue(0);
+
+            entity.HasOne(d => d.Conversation)
+                .WithMany(p => p.Participants)
+                .HasForeignKey(d => d.ConversationId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_ConversationParticipant_Conversation");
+
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_ConversationParticipant_User");
+        });
+
+        modelBuilder.Entity<FavoriteTutor>(entity =>
+        {
+            entity.ToTable("FavoriteTutor");
+
+            // Unique constraint: một user chỉ có thể favorite một tutor profile một lần
+            entity.HasIndex(e => new { e.UserId, e.TutorProfileId })
+                .IsUnique()
+                .HasDatabaseName("UQ_FavoriteTutor_User_Tutor");
+
+            entity.HasIndex(e => e.UserId, "IX_FavoriteTutor_UserId");
+            entity.HasIndex(e => e.TutorProfileId, "IX_FavoriteTutor_TutorProfileId");
+
+            entity.Property(e => e.UserId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.TutorProfileId).HasMaxLength(450).IsRequired();
+
+            // Foreign key: User
+            entity.HasOne(d => d.User)
+                .WithMany()
+                .HasForeignKey(d => d.UserId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_FavoriteTutor_User");
+
+            // Foreign key: TutorProfile
+            entity.HasOne(d => d.TutorProfile)
+                .WithMany()
+                .HasForeignKey(d => d.TutorProfileId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_FavoriteTutor_TutorProfile");
+        });
         
+        // ===== Quiz Feature Configurations =====
+        
+        modelBuilder.Entity<Quiz>(entity =>
+        {
+            entity.ToTable("Quiz");
+            
+            entity.HasIndex(e => e.LessonId, "IX_Quiz_LessonId");
+            
+            entity.Property(e => e.Title).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.Description).HasMaxLength(2000);
+            entity.Property(e => e.QuizType).HasConversion<string>().HasMaxLength(50);
+            entity.Property(e => e.IsActive).HasDefaultValue(true);
+            
+            entity.HasOne(d => d.Lesson)
+                .WithMany()
+                .HasForeignKey(d => d.LessonId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_Quiz_Lesson");
+        });
+        
+        modelBuilder.Entity<QuizQuestion>(entity =>
+        {
+            entity.ToTable("QuizQuestion");
+            
+            entity.HasIndex(e => e.QuizId, "IX_QuizQuestion_QuizId");
+            entity.HasIndex(e => new { e.QuizId, e.OrderIndex }, "IX_QuizQuestion_Quiz_Order");
+            
+            entity.Property(e => e.QuestionText).HasMaxLength(1000).IsRequired();
+            entity.Property(e => e.OptionA).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.OptionB).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.OptionC).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.OptionD).HasMaxLength(500).IsRequired();
+            entity.Property(e => e.CorrectAnswer).HasMaxLength(1).IsRequired();
+            entity.Property(e => e.Explanation).HasMaxLength(1000);
+            entity.Property(e => e.Points).HasDefaultValue(1);
+            
+            entity.HasOne(d => d.Quiz)
+                .WithMany(q => q.Questions)
+                .HasForeignKey(d => d.QuizId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_QuizQuestion_Quiz");
+        });
+        
+        modelBuilder.Entity<StudentQuizAttempt>(entity =>
+        {
+            entity.ToTable("StudentQuizAttempt");
+            
+            entity.HasIndex(e => e.QuizId, "IX_StudentQuizAttempt_QuizId");
+            entity.HasIndex(e => e.StudentProfileId, "IX_StudentQuizAttempt_StudentProfileId");
+            entity.HasIndex(e => new { e.StudentProfileId, e.QuizId, e.StartedAt }, 
+                "IX_StudentQuizAttempt_Student_Quiz_Date");
+            
+            entity.Property(e => e.ScorePercentage).HasColumnType("decimal(5,2)");
+            entity.Property(e => e.IsCompleted).HasDefaultValue(false);
+            entity.Property(e => e.IsPassed).HasDefaultValue(false);
+            
+            entity.HasOne(d => d.Quiz)
+                .WithMany(q => q.Attempts)
+                .HasForeignKey(d => d.QuizId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_StudentQuizAttempt_Quiz");
+            
+            entity.HasOne(d => d.Student)
+                .WithMany()
+                .HasForeignKey(d => d.StudentProfileId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StudentQuizAttempt_StudentProfile");
+        });
+        
+       modelBuilder.Entity<StudentQuizAnswer>(entity =>
+        {
+            entity.ToTable("StudentQuizAnswer");
+            
+            entity.HasIndex(e => e.AttemptId, "IX_StudentQuizAnswer_AttemptId");
+            entity.HasIndex(e => e.QuestionId, "IX_StudentQuizAnswer_QuestionId");
+            entity.HasIndex(e => new { e.AttemptId, e.QuestionId }, 
+                "UQ_StudentQuizAnswer_Attempt_Question")
+                .IsUnique();
+            
+            entity.Property(e => e.SelectedAnswer).HasMaxLength(4);
+            entity.Property(e => e.IsCorrect).HasDefaultValue(false);
+            
+            entity.HasOne(d => d.Attempt)
+                .WithMany(a => a.Answers)
+                .HasForeignKey(d => d.AttemptId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_StudentQuizAnswer_Attempt");
+            
+            entity.HasOne(d => d.Question)
+                .WithMany(q => q.StudentAnswers)
+                .HasForeignKey(d => d.QuestionId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_StudentQuizAnswer_Question");
+        });
 
         OnModelCreatingPartial(modelBuilder);
     }

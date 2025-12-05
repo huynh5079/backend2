@@ -42,4 +42,14 @@ public partial class ClassRequest : BaseEntity
     public virtual TutorProfile? Tutor { get; set; }
 
     public virtual ICollection<TutorApplication> TutorApplications { get; set; } = new List<TutorApplication>();
+
+    /// <summary>
+    /// Kiểm tra xem đây có phải là Direct Request (book trực tiếp gia sư) không
+    /// </summary>
+    public bool IsDirectRequest => !string.IsNullOrWhiteSpace(TutorId);
+
+    /// <summary>
+    /// Kiểm tra xem đây có phải là Marketplace Request (tìm gia sư) không
+    /// </summary>
+    public bool IsMarketplaceRequest => string.IsNullOrWhiteSpace(TutorId);
 }

@@ -18,7 +18,23 @@ namespace DataLayer.Enum
         Certificate,        // Chứng chỉ gia sư
         IdentityDocument,   // CCCD/CMND
         Material,           // Tài liệu học tập
-        LessonVideo         // Video bài học
+        LessonVideo,        // Video bài học
+        Chat                // File/hình ảnh trong chat
+    }
+
+    public enum ConversationType
+    {
+        OneToOne,           // Chat 1-1 giữa 2 người
+        Class,              // Chat theo lớp học
+        ClassRequest        // Chat theo ClassRequest
+    }
+
+    public enum MessageType
+    {
+        Text,               // Tin nhắn text
+        Image,              // Hình ảnh
+        File,               // File đính kèm
+        System              // Tin nhắn hệ thống
     }
 
     public enum AccountStatus
@@ -86,14 +102,30 @@ namespace DataLayer.Enum
         PayoutIn,     // ví tutor nhận thanh toán Net (ghi dương)
         RefundOut,    // ví admin hoàn tiền cho payer (ghi âm)
         RefundIn,     // ví payer nhận tiền hoàn (ghi dương)
-        Commission    // ghi nhận hoa hồng (doanh thu) không thay đổi số dư
+        Commission,   // ghi nhận hoa hồng (doanh thu) không thay đổi số dư
+        // Tutor Deposit flow
+        DepositOut,   // tutor đặt cọc (ghi âm ở ví tutor)
+        DepositIn,    // ví admin nhận tiền cọc (ghi dương)
+        DepositRefundOut, // ví admin hoàn cọc cho tutor (ghi âm)
+        DepositRefundIn,  // ví tutor nhận hoàn cọc (ghi dương)
+        DepositForfeitOut, // ví admin tịch thu cọc (ghi âm, chuyển về student hoặc system)
+        DepositForfeitIn  // ví student/system nhận tiền tịch thu (ghi dương)
     }
 
     public enum EscrowStatus
     {
-        Held,      // đã thu Gross, đang giữ (chưa chi trả tutor)
-        Released,  // đã giải ngân cho tutor (đã ghi nhận hoa hồng)
-        Refunded   // đã hoàn trả lại payer (chỉ khi còn Held)
+        Held,              // đã thu Gross, đang giữ (chưa chi trả tutor)
+        Released,          // đã giải ngân cho tutor (đã ghi nhận hoa hồng)
+        Refunded,          // đã hoàn trả lại payer (chỉ khi còn Held)
+        PartiallyReleased, // đã giải ngân một phần (cho partial release)
+        Cancelled          // đã hủy (không giải ngân, không refund)
+    }
+
+    public enum TutorDepositStatus
+    {
+        Held,      // đã đặt cọc, đang giữ
+        Refunded,  // đã hoàn cọc cho tutor (khi hoàn thành khóa học)
+        Forfeited  // bị tịch thu (tutor vi phạm, bỏ dở)
     }
 
     public enum PaymentProvider
@@ -154,6 +186,20 @@ namespace DataLayer.Enum
         Completed,  // Lớp đã kết thúc
         Cancelled   // Lớp đã bị hủy
     }
+
+    // Lý do hủy lớp (Admin cancel reason)
+    public enum ClassCancelReason
+    {
+        SystemError,        // Lỗi hệ thống/setup 
+        TutorFault,        // Tutor lỗi - bỏ giữa chừng, dạy tệ, vi phạm 
+        StudentFault,      // HS lỗi - không hợp tác, no-show 
+        MutualConsent,     // Hai bên đồng ý dừng 
+        PolicyViolation,   // Vi phạm policy
+        DuplicateClass,    // Lớp trùng
+        IncorrectInfo,     // Thông tin sai (giá, lịch, môn học)
+        Other              // Lý do khác
+    }
+
     //Schedule Entry Type  
     public enum EntryType
     {
@@ -176,15 +222,39 @@ namespace DataLayer.Enum
         WalletWithdraw,           // Rút tiền thành công
         WalletTransferIn,         // Nhận chuyển tiền
         WalletTransferOut,        // Chuyển tiền đi
+        PaymentFailed,            // Thanh toán thất bại
         EscrowPaid,               // Đã thanh toán escrow
         EscrowReleased,           // Escrow đã được giải ngân (cho tutor)
         EscrowRefunded,           // Escrow đã được hoàn tiền (cho payer)
         PayoutReceived,           // Nhận thanh toán từ escrow (cho tutor)
+        ClassCancelled,           // Lớp học đã bị hủy (gửi cho tutor và HS)
+        ClassEnrollmentSuccess,   // Ghi danh lớp học thành công (gửi cho student)
+        StudentEnrolledInClass,   // Có học sinh mới ghi danh vào lớp (gửi cho tutor)
+        TutorDepositRefunded,     // Hoàn tiền cọc cho gia sư
+        TutorDepositForfeited,    // Tịch thu tiền cọc gia sư
+
+        // Tutor Application
+        TutorApplicationReceived,  // Có gia sư mới ứng tuyển vào request
+        TutorApplicationAccepted, // Đơn ứng tuyển được chấp nhận
+        TutorApplicationRejected, // Đơn ứng tuyển bị từ chối
+
+        // Class Request
+        ClassRequestReceived,     // Có yêu cầu lớp học mới (gửi cho tutor khi student tạo direct request)
+        ClassRequestAccepted,      // Yêu cầu lớp học được chấp nhận
+        ClassRequestRejected,     // Yêu cầu lớp học bị từ chối
+        ClassCreatedFromRequest,  // Lớp học được tạo từ yêu cầu
+
+        // Lesson & Attendance
+        LessonCompleted,          // Buổi học đã hoàn thành
+        AttendanceMarked,         // Điểm danh đã được ghi nhận
 
         // Reschedule Lessons
         LessonRescheduleRequest,  // Gửi cho Student/Parent khi có yêu cầu mới
         LessonRescheduleAccepted, // Gửi cho Tutor khi được chấp nhận
-        LessonRescheduleRejected  // Gửi cho Tutor khi bị từ chối
+        LessonRescheduleRejected, // Gửi cho Tutor khi bị từ chối
+
+        // Feedback
+        FeedbackCreated           // Đánh giá mới được tạo
     }
 
     // Notification Status
@@ -209,5 +279,20 @@ namespace DataLayer.Enum
         Accepted,
         Rejected,
         Cancelled // (Tùy chọn: nếu Tutor muốn hủy yêu cầu)
+    }
+
+    // Commission Type
+    public enum CommissionType
+    {
+        OneToOneOnline = 1,      // 1-1 Online: 12%
+        OneToOneOffline = 2,     // 1-1 Offline: 15%
+        GroupClassOnline = 3,    // Nhiều học sinh Online: 10%
+        GroupClassOffline = 4,   // Nhiều học sinh Offline: 12%
+    }
+
+    public enum QuizType
+    {
+        Practice,  // Bài tập ôn tập - không giới hạn số lần làm
+        Test       // Bài kiểm tra - có giới hạn số lần làm
     }
 }

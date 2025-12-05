@@ -9,6 +9,7 @@ using DataLayer.Repositories.GenericType;
 using DataLayer.Repositories.GenericType.Abstraction;
 using Microsoft.EntityFrameworkCore;
 using System;
+using System.Linq;
 using System.Linq.Expressions;
 
 namespace BusinessLayer.Service.ScheduleService;
@@ -16,23 +17,32 @@ namespace BusinessLayer.Service.ScheduleService;
 public class ClassRequestService : IClassRequestService
 {
     private readonly IScheduleUnitOfWork _uow;
+    private readonly IUnitOfWork _mainUow;
     private readonly IStudentProfileService _studentProfileService;
     private readonly ITutorProfileService _tutorProfileService;
     private readonly TpeduContext _context;
     private readonly IParentProfileRepository _parentRepo;
+    private readonly IScheduleGenerationService _scheduleGenerationService;
+    private readonly INotificationService _notificationService;
 
     public ClassRequestService(
         IScheduleUnitOfWork uow,
+        IUnitOfWork mainUow,
         IStudentProfileService studentProfileService,
         ITutorProfileService tutorProfileService,
         TpeduContext context,
-        IParentProfileRepository parentRepo)
+        IParentProfileRepository parentRepo,
+        IScheduleGenerationService scheduleGenerationService,
+        INotificationService notificationService)
     {
         _uow = uow;
+        _mainUow = mainUow;
         _studentProfileService = studentProfileService;
         _tutorProfileService = tutorProfileService;
         _context = context;
         _parentRepo = parentRepo;
+        _scheduleGenerationService = scheduleGenerationService;
+        _notificationService = notificationService;
     }
 
     #region Student's Actions
@@ -110,6 +120,33 @@ public class ClassRequestService : IClassRequestService
                 // 3. Save
                 await _uow.SaveChangesAsync();
                 await transaction.CommitAsync();
+
+                // Gửi notification cho tutor nếu là direct request (có TutorId)
+                if (!string.IsNullOrEmpty(dto.TutorId))
+                {
+                    var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(dto.TutorId);
+                    if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
+                    {
+                        try
+                        {
+                            var studentProfile = await _mainUow.StudentProfiles.GetAsync(
+                                filter: s => s.Id == targetStudentProfileId,
+                                includes: q => q.Include(s => s.User));
+                            var studentName = studentProfile?.User?.UserName ?? "một học sinh";
+                            var notification = await _notificationService.CreateAccountNotificationAsync(
+                                tutorProfile.UserId,
+                                NotificationType.ClassRequestReceived,
+                                $"{studentName} đã gửi yêu cầu lớp học '{newRequest.Subject}' cho bạn. Vui lòng xem xét và phản hồi.",
+                                newRequest.Id);
+                            await _uow.SaveChangesAsync();
+                            await _notificationService.SendRealTimeNotificationAsync(tutorProfile.UserId, notification);
+                        }
+                        catch (Exception notifEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
+                }
             }
             catch (Exception)
             {
@@ -251,7 +288,9 @@ public class ClassRequestService : IClassRequestService
                             .Include(cr => cr.ClassRequestSchedules)
         );
 
-        return requests.Select(MapToResponseDto);
+        return requests
+            .OrderByDescending(cr => cr.CreatedAt)
+            .Select(MapToResponseDto);
     }
 
     #endregion
@@ -270,17 +309,20 @@ public class ClassRequestService : IClassRequestService
                             .Include(cr => cr.ClassRequestSchedules)
         );
 
-        return requests.Select(MapToResponseDto);
+        return requests
+            .OrderByDescending(cr => cr.CreatedAt)
+            .Select(MapToResponseDto);
     }
 
-    public async Task<bool> RespondToDirectRequestAsync(string tutorUserId, string requestId, bool accept)
+    public async Task<string?> RespondToDirectRequestAsync(string tutorUserId, string requestId, bool accept, string? meetingLink = null)
     {
         var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
         if (tutorProfileId == null)
             throw new UnauthorizedAccessException("Tài khoản gia sư không hợp lệ.");
 
         var request = await _uow.ClassRequests.GetAsync(
-            cr => cr.Id == requestId && cr.TutorId == tutorProfileId);
+            cr => cr.Id == requestId && cr.TutorId == tutorProfileId,
+            includes: q => q.Include(cr => cr.ClassRequestSchedules));
 
         if (request == null)
             throw new KeyNotFoundException("Không tìm thấy yêu cầu hoặc bạn không có quyền.");
@@ -288,11 +330,145 @@ public class ClassRequestService : IClassRequestService
         if (request.Status != ClassRequestStatus.Pending)
             throw new InvalidOperationException("Yêu cầu này đã được xử lý.");
 
-        request.Status = accept ? ClassRequestStatus.Active : ClassRequestStatus.Rejected;
+        if (!accept)
+        {
+            // Reject: only update status
+            request.Status = ClassRequestStatus.Rejected;
+            await _uow.ClassRequests.UpdateAsync(request);
+            await _uow.SaveChangesAsync();
 
-        await _uow.ClassRequests.UpdateAsync(request);
-        await _uow.SaveChangesAsync();
-        return true;
+            // Gửi notification cho student khi request bị reject
+            var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(request.StudentId ?? string.Empty);
+            if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId))
+            {
+                try
+                {
+                    var notification = await _notificationService.CreateAccountNotificationAsync(
+                        studentProfile.UserId,
+                        NotificationType.ClassRequestRejected,
+                        "Yêu cầu lớp học của bạn đã bị gia sư từ chối.",
+                        request.Id);
+                    await _uow.SaveChangesAsync();
+                    await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, notification);
+                }
+                catch (Exception notifEx)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                }
+            }
+
+            return null; // Reject không tạo Class, trả về null
+        }
+
+        // Accept: create Class + ClassAssign + Schedule
+        string? createdClassId = null;
+        var executionStrategy = _context.Database.CreateExecutionStrategy();
+            await executionStrategy.ExecuteAsync(async () =>
+            {
+                await using var transaction = await _context.Database.BeginTransactionAsync();
+                try
+                {
+                    // Kiểm tra duplicate class trước khi tạo
+                    await CheckForDuplicateClassFromRequestAsync(tutorProfileId, request);
+
+                    // 1. Tạo Class từ ClassRequest
+                    var newClass = new Class
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    TutorId = tutorProfileId,
+                    Title = $"Lớp {request.Subject} (từ yêu cầu {request.Id})",
+                    Description = $"{request.Description}\n\nYêu cầu đặc biệt: {request.SpecialRequirements}",
+                    Price = request.Budget,
+                    Status = ClassStatus.Pending, // Chờ học sinh thanh toán
+                    Location = request.Location,
+                    Mode = request.Mode,
+                    Subject = request.Subject,
+                    EducationLevel = request.EducationLevel,
+                    ClassStartDate = request.ClassStartDate,
+                    StudentLimit = 1, // 1-1
+                    CurrentStudentCount = 1,
+                    // link tranfer
+                    OnlineStudyLink = !string.IsNullOrEmpty(meetingLink) ? meetingLink : request.OnlineStudyLink
+                };
+                await _uow.Classes.CreateAsync(newClass);
+                // save ClassId for closure
+                createdClassId = newClass.Id;
+
+                // create ClassAssign vs PaymentStatus = Pending
+                var newAssignment = new ClassAssign
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    ClassId = newClass.Id,
+                    StudentId = request.StudentId,
+                    PaymentStatus = PaymentStatus.Pending, // unpaid, will navigate to payment
+                    ApprovalStatus = ApprovalStatus.Approved, // Tutor accepted, request = Approved
+                    EnrolledAt = DateTime.UtcNow
+                };
+                await _uow.ClassAssigns.CreateAsync(newAssignment);
+
+                // copy schedule from ClassRequestSchedules to ClassSchedules
+                var newClassSchedules = request.ClassRequestSchedules.Select(reqSchedule => new ClassSchedule
+                {
+                    Id = Guid.NewGuid().ToString(),
+                    ClassId = newClass.Id,
+                    DayOfWeek = reqSchedule.DayOfWeek ?? 0,
+                    StartTime = reqSchedule.StartTime,
+                    EndTime = reqSchedule.EndTime
+                }).ToList();
+                await _context.ClassSchedules.AddRangeAsync(newClassSchedules);
+
+                // update request status
+                request.Status = ClassRequestStatus.Matched; // matched tutor and created class
+                await _uow.ClassRequests.UpdateAsync(request);
+
+                // call schedule generation
+                await _scheduleGenerationService.GenerateScheduleFromRequestAsync(
+                    newClass.Id,
+                    tutorProfileId,
+                    request.ClassStartDate ?? DateTime.UtcNow,
+                    request.ClassRequestSchedules
+                );
+
+                // save all
+                await _uow.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                // Gửi notification cho student khi request được accept và class được tạo
+                var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(request.StudentId ?? string.Empty);
+                if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId) && createdClassId != null)
+                {
+                    try
+                    {
+                        var acceptNotification = await _notificationService.CreateAccountNotificationAsync(
+                            studentProfile.UserId,
+                            NotificationType.ClassRequestAccepted,
+                            "Yêu cầu lớp học của bạn đã được gia sư chấp nhận.",
+                            request.Id);
+                        await _uow.SaveChangesAsync();
+                        await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, acceptNotification);
+
+                        var createdNotification = await _notificationService.CreateAccountNotificationAsync(
+                            studentProfile.UserId,
+                            NotificationType.ClassCreatedFromRequest,
+                            "Lớp học đã được tạo từ yêu cầu của bạn. Vui lòng thanh toán để bắt đầu học.",
+                            createdClassId);
+                        await _uow.SaveChangesAsync();
+                        await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, createdNotification);
+                    }
+                    catch (Exception notifEx)
+                    {
+                        System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                    }
+                }
+            }
+            catch (Exception)
+            {
+                await transaction.RollbackAsync();
+                throw;
+            }
+        });
+
+        return createdClassId; // return created ClassId
     }
 
     #endregion
@@ -494,5 +670,69 @@ public class ClassRequestService : IClassRequestService
         }
 
         return request;
+    }
+
+    /// <summary>
+    ///  Kiểm tra duplicate class khi tạo từ ClassRequest
+    /// </summary>
+    private async Task CheckForDuplicateClassFromRequestAsync(string tutorId, ClassRequest request)
+    {
+        if (request.Budget == null)
+            return; // Không kiểm tra nếu không có budget
+
+        // Tìm các lớp học của cùng gia sư với cùng môn học, cấp độ và mode
+        var existingClasses = await _uow.Classes.GetAllAsync(
+            filter: c => c.TutorId == tutorId
+                       && c.Subject == request.Subject
+                       && c.EducationLevel == request.EducationLevel
+                       && c.Mode == request.Mode
+                       && c.DeletedAt == null
+                       && (c.Status == ClassStatus.Pending || c.Status == ClassStatus.Active || c.Status == ClassStatus.Ongoing),
+            includes: q => q.Include(c => c.ClassSchedules)
+        );
+
+        if (!existingClasses.Any())
+            return; // Không có lớp nào tương tự
+
+        // Kiểm tra giá tương tự (trong khoảng ±10%)
+        decimal priceTolerance = request.Budget.Value * 0.1m;
+        var similarPriceClasses = existingClasses
+            .Where(c => c.Price.HasValue && Math.Abs(c.Price.Value - request.Budget.Value) <= priceTolerance)
+            .ToList();
+
+        if (!similarPriceClasses.Any())
+            return; // Không có lớp nào có giá tương tự
+
+        // Kiểm tra lịch học trùng lặp
+        if (request.ClassRequestSchedules == null || !request.ClassRequestSchedules.Any())
+            return;
+
+        foreach (var existingClass in similarPriceClasses)
+        {
+            if (existingClass.ClassSchedules == null || !existingClass.ClassSchedules.Any())
+                continue;
+
+            // So sánh từng lịch học trong request với các lịch học trong lớp hiện có
+            foreach (var newSchedule in request.ClassRequestSchedules)
+            {
+                foreach (var existingSchedule in existingClass.ClassSchedules)
+                {
+                    // Kiểm tra cùng ngày trong tuần
+                    if (existingSchedule.DayOfWeek == newSchedule.DayOfWeek)
+                    {
+                        // Kiểm tra thời gian chồng chéo
+                        if (newSchedule.StartTime < existingSchedule.EndTime && 
+                            existingSchedule.StartTime < newSchedule.EndTime)
+                        {
+                            throw new InvalidOperationException(
+                                $"Đã tồn tại lớp học tương tự (ID: {existingClass.Id}, Tiêu đề: {existingClass.Title}) " +
+                                $"với cùng môn học, cấp độ, mode và lịch học trùng lặp vào {(DayOfWeek)newSchedule.DayOfWeek} " +
+                                $"từ {newSchedule.StartTime:hh\\:mm} đến {newSchedule.EndTime:hh\\:mm}. " +
+                                "Vui lòng kiểm tra lại hoặc hủy lớp học trùng lặp trước khi tạo lớp mới.");
+                        }
+                    }
+                }
+            }
+        }
     }
 }

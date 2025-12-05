@@ -10,5 +10,6 @@ namespace BusinessLayer.DTOs.Wallet
     {
         public string Status { get; set; } = "Ok"; // "Ok" | "Fail"
         public string? Message { get; set; }
+        public object? Data { get; set; } // Generic data for response
     }
 }

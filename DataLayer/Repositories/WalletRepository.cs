@@ -1,4 +1,5 @@
 ﻿// TUYỆT ĐỐI KHÔNG: using System.Transactions;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
@@ -27,8 +28,25 @@ namespace DataLayer.Repositories
         
         public new Task Update(WalletEntity entity)
         {
-            _context.Wallets.Attach(entity);
-            _context.Entry(entity).State = EntityState.Modified;
+            // Kiểm tra xem entity đã được track chưa
+            var trackedEntity = _context.Wallets.Local.FirstOrDefault(e => e.Id == entity.Id);
+            if (trackedEntity != null)
+            {
+                // Entity đã được track, cập nhật giá trị từ entity mới
+                // QUAN TRỌNG: Cập nhật giá trị trên tracked entity
+                trackedEntity.Balance = entity.Balance;
+                trackedEntity.IsFrozen = entity.IsFrozen;
+                trackedEntity.Currency = entity.Currency;
+                // Đảm bảo state là Modified để EF biết cần update
+                _context.Entry(trackedEntity).State = EntityState.Modified;
+            }
+            else
+            {
+                // Entity chưa được track, attach và set state
+                // QUAN TRỌNG: Attach entity với giá trị mới, sau đó set state = Modified
+                _context.Wallets.Attach(entity);
+                _context.Entry(entity).State = EntityState.Modified;
+            }
             return Task.CompletedTask;
         }
     }

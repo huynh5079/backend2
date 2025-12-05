@@ -178,5 +178,33 @@ namespace TPEdu_API.Controllers
             return Ok(ApiResponse<object>.Ok(null, "Xóa lớp học thành công."));
         }
         #endregion
+
+        #region PATCH
+        /// <summary>
+        /// [Tutor] Hoàn thành lớp học - tự động giải ngân escrow (hoàn cọc + giải ngân học phí + commission)
+        /// </summary>
+        [HttpPatch("{id}/complete")]
+        [Authorize(Roles = "Tutor")]
+        public async Task<IActionResult> CompleteClass(string id)
+        {
+            var tutorUserId = User.RequireUserId();
+            await _classService.CompleteClassAsync(tutorUserId, id);
+            return Ok(ApiResponse<object>.Ok(null, "Đã hoàn thành lớp học và giải ngân escrow thành công."));
+        }
+
+        /// <summary>
+        /// [Tutor] Hủy lớp học sớm hoặc bỏ giữa chừng
+        /// - Tutor cancel sớm (chưa dạy) → Refund full cho HS, Forfeit deposit
+        /// - Tutor bỏ giữa chừng (đã dạy một phần) → Partial release, refund phần còn lại, Forfeit deposit
+        /// </summary>
+        [HttpPatch("{id}/cancel")]
+        [Authorize(Roles = "Tutor")]
+        public async Task<IActionResult> CancelClassByTutor(string id, [FromBody] CancelClassByTutorRequestDto? request = null)
+        {
+            var tutorUserId = User.RequireUserId();
+            var result = await _classService.CancelClassByTutorAsync(tutorUserId, id, request?.Reason);
+            return Ok(ApiResponse<CancelClassResponseDto>.Ok(result, result.Message));
+        }
+        #endregion
     }
 }

@@ -107,6 +107,40 @@ namespace DataLayer.Repositories
 
             await _context.SaveChangesAsync();
         }
+
+        public async Task<PaginationResult<Message>> GetMessagesByConversationIdAsync(string conversationId, int pageNumber, int pageSize)
+        {
+            IQueryable<Message> query = _dbSet
+                .Include(m => m.Sender)
+                .Include(m => m.Receiver)
+                .Where(m => m.ConversationId == conversationId && m.DeletedAt == null)
+                .OrderByDescending(m => m.CreatedAt);
+
+            var totalCount = await query.CountAsync();
+            var items = await query
+                .Skip((pageNumber - 1) * pageSize)
+                .Take(pageSize)
+                .ToListAsync();
+
+            return new PaginationResult<Message>(items, totalCount, pageNumber, pageSize);
+        }
+
+        public async Task MarkConversationMessagesAsReadAsync(string conversationId, string userId)
+        {
+            var messages = await _dbSet
+                .Where(m => m.ConversationId == conversationId &&
+                           m.ReceiverId == userId &&
+                           m.SenderId != userId &&
+                           (m.Status == null || m.Status != "Read"))
+                .ToListAsync();
+
+            foreach (var msg in messages)
+            {
+                msg.Status = "Read";
+            }
+
+            await _context.SaveChangesAsync();
+        }
     }
 }
 

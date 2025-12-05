@@ -1,9 +1,11 @@
 ﻿using BusinessLayer.DTOs.Schedule.Class;
 using BusinessLayer.DTOs.Schedule.ClassAssign;
+using BusinessLayer.DTOs.Wallet;
 using BusinessLayer.Service.Interface;
 using BusinessLayer.Service.Interface.IScheduleService;
 using DataLayer.Entities;
 using DataLayer.Enum;
+using DataLayer.Repositories.Abstraction;
 using DataLayer.Repositories.Abstraction.Schedule;
 using Microsoft.EntityFrameworkCore;
 using System;
@@ -17,22 +19,31 @@ namespace BusinessLayer.Service.ScheduleService
     {
         private readonly TpeduContext _context;
         private readonly IScheduleUnitOfWork _uow;
+        private readonly IUnitOfWork _mainUow;
         private readonly IStudentProfileService _studentProfileService;
         private readonly ITutorProfileService _tutorProfileService;
         private readonly IScheduleGenerationService _scheduleGenerationService;
+        private readonly IEscrowService _escrowService;
+        private readonly INotificationService _notificationService;
 
         public AssignService(
             TpeduContext context,
             IScheduleUnitOfWork uow,
+            IUnitOfWork mainUow,
             IStudentProfileService studentProfileService,
             ITutorProfileService tutorProfileService,
-            IScheduleGenerationService scheduleGenerationService)
+            IScheduleGenerationService scheduleGenerationService,
+            IEscrowService escrowService,
+            INotificationService notificationService)
         {
             _context = context;
             _uow = uow;
+            _mainUow = mainUow;
             _studentProfileService = studentProfileService;
             _tutorProfileService = tutorProfileService;
             _scheduleGenerationService = scheduleGenerationService;
+            _escrowService = escrowService;
+            _notificationService = notificationService;
         }
 
         public async Task<ClassDto> AssignRecurringClassAsync(string studentUserId, string classId)
@@ -73,9 +84,9 @@ namespace BusinessLayer.Service.ScheduleService
                     if (existingAssignment != null)
                         throw new InvalidOperationException("Bạn đã ghi danh vào lớp học này rồi.");
 
-                    // wallet deduction
-                    // ex transaction done
-                    //  
+                    // Check giới hạn học sinh TRƯỚC KHI tạo ClassAssign
+                    if (targetClass.CurrentStudentCount >= targetClass.StudentLimit)
+                        throw new InvalidOperationException("Lớp học đã đủ số lượng học sinh.");
 
                     // create ClassAssign
                     var newAssignment = new ClassAssign
@@ -83,29 +94,16 @@ namespace BusinessLayer.Service.ScheduleService
                         Id = Guid.NewGuid().ToString(),
                         ClassId = classId,
                         StudentId = studentProfileId,
-                        PaymentStatus = PaymentStatus.Paid, // paid done
-                        ApprovalStatus = ApprovalStatus.Approved, // assumed approved
+                        PaymentStatus = PaymentStatus.Pending, // Chưa thanh toán - sẽ thanh toán qua /escrow/pay
+                        ApprovalStatus = ApprovalStatus.Approved, // Tutor tạo lớp = auto accept học sinh
                         EnrolledAt = DateTime.UtcNow
                     };
                     await _uow.ClassAssigns.CreateAsync(newAssignment); // non save
 
                     // update Class
                     targetClass.CurrentStudentCount++;
-                    // if it's the first student, set to Ongoing
-                    if (targetClass.Status == ClassStatus.Pending)
-                    {
-                        targetClass.Status = ClassStatus.Ongoing;
-                    }
-                    // if reached limit, set to Ongoing
-                    else if (targetClass.CurrentStudentCount == targetClass.StudentLimit)
-                    {
-                        targetClass.Status = ClassStatus.Ongoing;
-                    }
-                    else
-                    {
-                        // not full yet, set to Active
-                        targetClass.Status = ClassStatus.Active;
-                    }
+                    // KHÔNG set Ongoing ngay - chỉ set khi đã thanh toán và đặt cọc
+                    // Giữ nguyên status hiện tại (Pending hoặc Active) - chờ thanh toán
 
                     await _uow.Classes.UpdateAsync(targetClass); // non save
 
@@ -123,6 +121,49 @@ namespace BusinessLayer.Service.ScheduleService
                     // save all
                     await _uow.SaveChangesAsync();
                     await transaction.CommitAsync();
+
+                    // Gửi notification cho student khi enroll thành công
+                    var studentProfile = await _mainUow.StudentProfiles.GetAsync(
+                        filter: s => s.Id == studentProfileId,
+                        includes: q => q.Include(s => s.User));
+                    if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId))
+                    {
+                        try
+                        {
+                            var notification = await _notificationService.CreateAccountNotificationAsync(
+                                studentProfile.UserId,
+                                NotificationType.ClassEnrollmentSuccess,
+                                $"Bạn đã ghi danh vào lớp học '{targetClass.Title}' thành công.",
+                                targetClass.Id);
+                            await _uow.SaveChangesAsync();
+                            await _notificationService.SendRealTimeNotificationAsync(studentProfile.UserId, notification);
+                        }
+                        catch (Exception notifEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
+
+                    // Gửi notification cho tutor khi có học sinh mới enroll vào lớp
+                    var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(targetClass.TutorId);
+                    if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
+                    {
+                        try
+                        {
+                            var studentName = studentProfile?.User?.UserName ?? "một học sinh";
+                            var notification = await _notificationService.CreateAccountNotificationAsync(
+                                tutorProfile.UserId,
+                                NotificationType.StudentEnrolledInClass,
+                                $"{studentName} đã ghi danh vào lớp học '{targetClass.Title}' của bạn.",
+                                targetClass.Id);
+                            await _uow.SaveChangesAsync();
+                            await _notificationService.SendRealTimeNotificationAsync(tutorProfile.UserId, notification);
+                        }
+                        catch (Exception notifEx)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
+                        }
+                    }
                 }
                 catch (Exception)
                 {
@@ -134,7 +175,8 @@ namespace BusinessLayer.Service.ScheduleService
         }
 
         /// <summary>
-        /// [TRANSACTION] student withdraw from class
+        /// [TRANSACTION] Student withdraw from class - Học sinh hủy enrollment
+        /// Xử lý refund escrow cho học sinh khi rút khỏi lớp
         /// </summary>
         public async Task<bool> WithdrawFromClassAsync(string studentUserId, string classId)
         {
@@ -162,51 +204,99 @@ namespace BusinessLayer.Service.ScheduleService
                         throw new KeyNotFoundException("Không tìm thấy lớp học.");
 
                     // validate Class status
-                    if (targetClass.Status == ClassStatus.Pending ||
-                        targetClass.Status == ClassStatus.Completed ||
+                    if (targetClass.Status == ClassStatus.Completed ||
                         targetClass.Status == ClassStatus.Cancelled)
                     {
                         throw new InvalidOperationException($"Không thể rút khỏi lớp học đang ở trạng thái '{targetClass.Status}'.");
                     }
 
-                    // wallet refund
-                    // assume done
+                    // Xử lý refund escrow cho học sinh khi rút khỏi lớp
+                    // Refund full (100%) cho học sinh
+                    var escrows = await _mainUow.Escrows.GetAllAsync(
+                        filter: e => e.ClassAssignId == assignment.Id && 
+                                   (e.Status == EscrowStatus.Held || e.Status == EscrowStatus.PartiallyReleased));
+
+                    foreach (var esc in escrows)
+                    {
+                        if (esc.Status == EscrowStatus.Held)
+                        {
+                            // Refund full cho học sinh
+                            await _escrowService.RefundAsync(studentUserId, new RefundEscrowRequest { EscrowId = esc.Id });
+                        }
+                        else if (esc.Status == EscrowStatus.PartiallyReleased)
+                        {
+                            // Đã release một phần cho tutor → Refund phần còn lại (100% của phần còn lại)
+                            decimal remainingPercentage = 1.0m - (esc.ReleasedAmount / esc.GrossAmount);
+                            if (remainingPercentage > 0)
+                            {
+                                await _escrowService.PartialRefundAsync(studentUserId, new PartialRefundEscrowRequest
+                                {
+                                    EscrowId = esc.Id,
+                                    RefundPercentage = remainingPercentage
+                                });
+                            }
+                        }
+                    }
+
+                    // Cập nhật PaymentStatus của ClassAssign
+                    assignment.PaymentStatus = PaymentStatus.Refunded;
+                    await _uow.ClassAssigns.UpdateAsync(assignment);
 
                     // delete ClassAssign
                     _context.ClassAssigns.Remove(assignment); //using _context to avoid tracking issues
 
-                    // update Class
-                    targetClass.CurrentStudentCount--;
-
-                    // if no students left, set to Pending and remove future Lessons/ScheduleEntries
+                    // update Class, decrease student count
+                    if (targetClass.CurrentStudentCount > 0)
+                    {
+                        targetClass.CurrentStudentCount--;
+                    }
+                    else
+                    {
+                        // If CurrentStudentCount is already 0
+                        // Change to 0 to avoid negative values
+                        targetClass.CurrentStudentCount = 0;
+                    }
+                    // if no students left, set to Pending and clean up future Lessons/Schedules
                     if (targetClass.CurrentStudentCount == 0)
                     {
-                        targetClass.Status = ClassStatus.Pending;
+                        targetClass.Status = ClassStatus.Cancelled;
 
-                        // find future Lessons
-                        var futureLessons = await _context.Lessons
-                            .Where(l => l.ClassId == classId && l.Status == LessonStatus.SCHEDULED)
+                        // find and delete future ScheduleEntries and Lessons
+                        // include Lesson when querying ScheduleEntries
+                        var futureEntries = await _context.ScheduleEntries
+                            .Include(se => se.Lesson)
+                            .Where(se => se.Lesson.ClassId == classId && se.StartTime > DateTime.Now)
                             .ToListAsync();
 
-                        if (futureLessons.Any())
+                        if (futureEntries.Any())
                         {
-                            var futureLessonIds = futureLessons.Select(l => l.Id).ToList();
+                            // take lessonids of future entries to delete lessons
+                            // use Distinct to avoid duplicates
+                            var futureLessonIds = futureEntries
+                                .Select(se => se.LessonId)
+                                .Where(id => id != null)
+                                .Distinct()
+                                .ToList();
 
-                            var futureEntries = await _context.ScheduleEntries
-                                .Where(se => futureLessonIds.Contains(se.LessonId))
-                                .ToListAsync();
-
-                            // delete ScheduleEntries
+                            // delete future ScheduleEntries first (FK constraints)
                             _context.ScheduleEntries.RemoveRange(futureEntries);
-                            // delete Lessons
-                            _context.Lessons.RemoveRange(futureLessons);
+
+                            // find and delete future Lessons related
+                            if (futureLessonIds.Any())
+                            {
+                                var futureLessons = await _context.Lessons
+                                    .Where(l => futureLessonIds.Contains(l.Id))
+                                    .ToListAsync();
+
+                                _context.Lessons.RemoveRange(futureLessons);
+                            }
                         }
                     }
-
                     await _uow.Classes.UpdateAsync(targetClass); // non save
 
                     // save all
                     await _uow.SaveChangesAsync();
+                    await _mainUow.SaveChangesAsync();
                     await transaction.CommitAsync();
                 }
                 catch (Exception)
@@ -325,35 +415,95 @@ namespace BusinessLayer.Service.ScheduleService
             };
         }
 
-        public async Task<List<TutorStudentDto>> GetStudentsByTutorAsync(string tutorUserId)
+        //public async Task<List<TutorStudentDto>> GetStudentsByTutorAsync(string tutorUserId)
+        //{
+        //    var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
+        //    if (tutorProfileId == null)
+        //        throw new UnauthorizedAccessException("Tài khoản gia sư không hợp lệ.");
+
+        //    // Lấy tất cả ClassAssign thuộc về các lớp của Tutor này
+        //    // Điều kiện: Lớp của Tutor && Học sinh đã được Approved
+        //    var assigns = await _uow.ClassAssigns.GetAllAsync(
+        //        filter: ca => ca.Class != null &&
+        //                      ca.Class.TutorId == tutorProfileId &&
+        //                      ca.ApprovalStatus == ApprovalStatus.Approved,
+        //        includes: q => q.Include(ca => ca.Class)
+        //                        .Include(ca => ca.Student).ThenInclude(s => s!.User)
+        //    );
+
+        //    return assigns.Select(ca => new TutorStudentDto
+        //    {
+        //        StudentId = ca.StudentId!,
+        //        StudentUserId = ca.Student?.UserId ?? "",
+        //        StudentName = ca.Student?.User?.UserName ?? "N/A",
+        //        StudentEmail = ca.Student?.User?.Email,
+        //        StudentPhone = ca.Student?.User?.Phone,
+        //        StudentAvatarUrl = ca.Student?.User?.AvatarUrl,
+
+        //        ClassId = ca.ClassId!,
+        //        ClassTitle = ca.Class?.Title ?? "N/A",
+        //        StudentLimit = ca.Class?.StudentLimit ?? 0,
+        //        JoinedAt = ca.EnrolledAt ?? ca.CreatedAt
+        //    }).ToList();
+        //}
+
+        // Filter students by tutor and class
+        public async Task<List<RelatedResourceDto>> GetMyTutorsAsync(string studentUserId)
         {
-            var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
-            if (tutorProfileId == null)
-                throw new UnauthorizedAccessException("Tài khoản gia sư không hợp lệ.");
+            // take student profile id
+            var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(studentUserId);
 
-            // Lấy tất cả ClassAssign thuộc về các lớp của Tutor này
-            // Điều kiện: Lớp của Tutor && Học sinh đã được Approved
-            var assigns = await _uow.ClassAssigns.GetAllAsync(
-                filter: ca => ca.Class != null &&
-                              ca.Class.TutorId == tutorProfileId &&
-                              ca.ApprovalStatus == ApprovalStatus.Approved,
-                includes: q => q.Include(ca => ca.Class)
-                                .Include(ca => ca.Student).ThenInclude(s => s!.User)
-            );
+            // Check null
+            if (studentProfileId == null) return new List<RelatedResourceDto>();
 
-            return assigns.Select(ca => new TutorStudentDto
+            var tutors = await _context.ClassAssigns
+                .Include(ca => ca.Class)
+                    .ThenInclude(c => c.Tutor)
+                        .ThenInclude(t => t.User)
+                .Where(ca => ca.StudentId == studentProfileId
+                             && ca.Class.Status != ClassStatus.Cancelled)
+                .Select(ca => ca.Class.Tutor)
+                .Distinct()
+                .ToListAsync();
+
+            return tutors.Select(t => new RelatedResourceDto
             {
-                StudentId = ca.StudentId!,
-                StudentUserId = ca.Student?.UserId ?? "",
-                StudentName = ca.Student?.User?.UserName ?? "N/A",
-                StudentEmail = ca.Student?.User?.Email,
-                StudentPhone = ca.Student?.User?.Phone,
-                StudentAvatarUrl = ca.Student?.User?.AvatarUrl,
+                ProfileId = t.Id.ToString(), // TutorId thường là chuỗi
+                UserId = t.UserId,
+                FullName = t.User?.UserName ?? t.User?.UserName ?? "N/A",
+                AvatarUrl = t.User?.AvatarUrl,
+                Email = t.User?.Email,
+                Phone = t.User?.Phone
+            }).ToList();
+        }
 
-                ClassId = ca.ClassId!,
-                ClassTitle = ca.Class?.Title ?? "N/A",
-                StudentLimit = ca.Class?.StudentLimit ?? 0,
-                JoinedAt = ca.EnrolledAt ?? ca.CreatedAt
+        public async Task<List<RelatedResourceDto>> GetMyStudentsAsync(string tutorUserId)
+        {
+            // SỬA LỖI 2: Gọi đúng tên hàm trong Interface
+            var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
+
+            // SỬA LỖI 1: tutorProfileId là string?, check null trực tiếp
+            if (string.IsNullOrEmpty(tutorProfileId)) return new List<RelatedResourceDto>();
+
+            var students = await _context.ClassAssigns
+                .Include(ca => ca.Class)
+                .Include(ca => ca.Student)
+                    .ThenInclude(s => s.User)
+                // SỬA LỖI 1: So sánh trực tiếp, KHÔNG dùng .Value
+                .Where(ca => ca.Class.TutorId == tutorProfileId
+                             && ca.Class.Status != ClassStatus.Cancelled)
+                .Select(ca => ca.Student)
+                .Distinct()
+                .ToListAsync();
+
+            return students.Select(s => new RelatedResourceDto
+            {
+                ProfileId = s.Id.ToString(),
+                UserId = s.UserId,
+                FullName = s.User?.UserName ?? s.User?.UserName ?? "N/A",
+                AvatarUrl = s.User?.AvatarUrl,
+                Email = s.User?.Email,
+                Phone = s.User?.Phone
             }).ToList();
         }
 

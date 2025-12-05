@@ -15,7 +15,6 @@ namespace TPEdu_API.Controllers.ScheduleController
 {
     [Route("tpedu/v1/assigns")]
     [ApiController]
-    [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
     public class AssignController : ControllerBase
     {
         private readonly IAssignService _assignService;
@@ -31,6 +30,7 @@ namespace TPEdu_API.Controllers.ScheduleController
         /// [Student] Assign the student to a class.
         /// </summary>
         [HttpPost]
+        [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
         public async Task<IActionResult> AssignStudentToClass([FromBody] AssignRecurringClassDto assignDto)
         {
             // Take userId from JWT token
@@ -45,6 +45,7 @@ namespace TPEdu_API.Controllers.ScheduleController
         /// [Student] Withdraw from a class.
         /// </summary>
         [HttpDelete("{classId}")]
+        [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
         public async Task<IActionResult> WithdrawFromClass(string classId)
         {
             var userId = User.RequireUserId();
@@ -58,6 +59,7 @@ namespace TPEdu_API.Controllers.ScheduleController
         /// [Student] Get list of classes the student has enrolled in.
         /// </summary>
         [HttpGet("my-classes")]
+        [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
         public async Task<IActionResult> GetMyEnrolledClasses()
         {
             var userId = User.RequireUserId();
@@ -70,6 +72,7 @@ namespace TPEdu_API.Controllers.ScheduleController
         /// [Student] Check if student has enrolled in a specific class.
         /// </summary>
         [HttpGet("{classId}/check")]
+        [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
         public async Task<IActionResult> CheckEnrollment(string classId)
         {
             var userId = User.RequireUserId();
@@ -86,6 +89,7 @@ namespace TPEdu_API.Controllers.ScheduleController
         /// [Student/Parent] Get enrollment detail for a specific class.
         /// </summary>
         [HttpGet("{classId}/detail")]
+        [Authorize(Roles = "Student,Parent,Tutor")]
         public async Task<IActionResult> GetEnrollmentDetail(string classId)
         {
             var userId = User.RequireUserId();
@@ -93,18 +97,30 @@ namespace TPEdu_API.Controllers.ScheduleController
             return Ok(ApiResponse<ClassAssignDetailDto>.Ok(enrollmentDetail, "Lấy thông tin enrollment thành công."));
         }
 
-        /// <summary>
-        /// [Tutor] Take all students assigned to the tutor's classes.
-        /// </summary>
-        [HttpGet("tutor/my-students")]
-        [Authorize(Roles = "Tutor")]
-        public async Task<IActionResult> GetMyStudents()
+        // Filter students by tutor and class
+
+        ///// <summary>
+        ///// [Tutor] Take all tutor this student assigned to these tutor's classes.
+        ///// </summary>
+        [HttpGet("my-tutors")]
+        [Authorize(Roles = "Student,Parent")] // Only allow Students and Parents
+        public async Task<IActionResult> GetMyTutors()
         {
-            var tutorUserId = User.RequireUserId();
-            var students = await _assignService.GetStudentsByTutorAsync(tutorUserId);
-            return Ok(ApiResponse<List<TutorStudentDto>>.Ok(students, "Lấy danh sách học sinh thành công."));
+            var userId = User.GetUserId(); // take from Claims
+            var result = await _assignService.GetMyTutorsAsync(userId);
+            return Ok(ApiResponse<List<RelatedResourceDto>>.Ok(result));
         }
 
-        // ...
+        ///// <summary>
+        ///// [Tutor] Take all students assigned to this tutor's classes.
+        ///// </summary>
+        [HttpGet("my-students")]
+        [Authorize(Roles = "Tutor")] // Only Tutor can call
+        public async Task<IActionResult> GetMyStudents()
+        {
+            var userId = User.GetUserId(); // take from Claims
+            var result = await _assignService.GetMyStudentsAsync(userId);
+            return Ok(ApiResponse<List<RelatedResourceDto>>.Ok(result));
+        }
     }
 }

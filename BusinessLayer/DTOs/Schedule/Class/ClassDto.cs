@@ -11,7 +11,13 @@ namespace BusinessLayer.DTOs.Schedule.Class
     public class ClassDto
     {
         public string Id { get; set; } = null!;
+
+        // Tutor identity fields
         public string TutorId { get; set; } = null!;
+        public string? TutorUserId { get; set; }
+        public string? TutorName { get; set; }
+        
+        // Class fields
         public string Title { get; set; } = null!;
         public string? Description { get; set; }
         public string? Subject { get; set; }

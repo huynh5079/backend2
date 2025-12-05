@@ -10,5 +10,15 @@ namespace BusinessLayer.Service.Interface
     {
         Task SendOtpEmailAsync(string toEmail, string otpCode);
         Task SendAsync(string toEmail, string subject, string htmlBody);
+        Task SendInvoiceEmailAsync(
+            string toEmail,
+            string customerName,
+            string invoiceNumber,
+            string orderId,
+            string? transactionId,
+            decimal amount,
+            string description,
+            string? classTitle = null,
+            string? classSubject = null);
     }
 }

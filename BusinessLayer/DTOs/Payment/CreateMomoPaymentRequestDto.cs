@@ -11,8 +11,10 @@ public class CreateMomoPaymentRequestDto
     [Required]
     public PaymentContextType ContextType { get; set; }
 
-    [Required]
-    public string ContextId { get; set; } = default!;
+    /// <summary>
+    /// ContextId is required for Escrow, optional for WalletDeposit (will use userId if not provided)
+    /// </summary>
+    public string? ContextId { get; set; }
 
     public string? Description { get; set; }
 
