@@ -49,6 +49,7 @@ namespace DataLayer.Repositories
         public IStudentQuizAttemptRepository StudentQuizAttempts { get; }
         public IStudentQuizAnswerRepository StudentQuizAnswers { get; }
         public IClassRepository2 Classes2 { get; }
+        public IVideoAnalysisRepository VideoAnalyses { get; }
 
         public UnitOfWork(TpeduContext ctx,
                           IUserRepository users,
@@ -81,7 +82,8 @@ namespace DataLayer.Repositories
                           IQuizQuestionRepository quizQuestions,
                           IStudentQuizAttemptRepository studentQuizAttempts,
                           IStudentQuizAnswerRepository studentQuizAnswers,
-                          IClassRepository2 classes2)
+                          IClassRepository2 classes2,
+                          IVideoAnalysisRepository videoAnalyses)
         {
             _ctx = ctx;
             Users = users;
@@ -115,6 +117,7 @@ namespace DataLayer.Repositories
             StudentQuizAttempts = studentQuizAttempts;
             StudentQuizAnswers = studentQuizAnswers;
             Classes2 = classes2;
+            VideoAnalyses = videoAnalyses;
         }
 
         public Task<int> SaveChangesAsync() => _ctx.SaveChangesAsync();

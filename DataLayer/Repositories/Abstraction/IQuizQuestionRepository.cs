@@ -5,5 +5,6 @@ namespace DataLayer.Repositories.Abstraction
 {
     public interface IQuizQuestionRepository : IGenericRepository<QuizQuestion>
     {
+        Task<QuizQuestion?> GetQuestionWithQuizAndClassAsync(string questionId);
     }
 }

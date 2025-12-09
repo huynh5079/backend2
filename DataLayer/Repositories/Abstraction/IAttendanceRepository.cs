@@ -14,5 +14,12 @@ namespace DataLayer.Repositories.Abstraction
         Task<List<Attendance>> GetByLessonAsync(string lessonId);
         Task<List<Attendance>> GetByStudentRangeAsync(string studentId, DateTime from, DateTime to);
         Task<List<(ScheduleEntry entry, Lesson lesson, Attendance? att)>> GetTutorScheduleAttendancesAsync(string tutorId, DateTime from, DateTime to);
+        
+        // New methods for moving queries from Service
+        Task<Lesson?> GetLessonWithTutorDataAsync(string lessonId);
+        Task<List<string>> GetStudentIdsInClassAsync(string classId);
+        Task<List<Attendance>> GetAttendancesByLessonIdsAsync(List<string> lessonIds);
+        Task<Dictionary<string, string>> GetAttendanceStatusMapAsync(string lessonId, List<string> studentIds);
+        Task<List<ClassAssign>> GetClassAssignsWithStudentsAsync(string classId);
     }
 }

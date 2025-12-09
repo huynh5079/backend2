@@ -45,6 +45,7 @@ namespace DataLayer.Repositories.Abstraction
         IStudentQuizAttemptRepository StudentQuizAttempts { get; }
         IStudentQuizAnswerRepository StudentQuizAnswers { get; }
         IClassRepository2 Classes2 { get; }
+        IVideoAnalysisRepository VideoAnalyses { get; }
 
         Task<int> SaveChangesAsync();
         Task<IDbContextTransaction> BeginTransactionAsync();

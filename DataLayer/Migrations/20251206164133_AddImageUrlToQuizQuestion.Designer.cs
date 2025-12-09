@@ -4,6 +4,7 @@ using DataLayer.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 
 #nullable disable
@@ -11,9 +12,11 @@ using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 namespace DataLayer.Migrations
 {
     [DbContext(typeof(TpeduContext))]
-    partial class TpeduContextModelSnapshot : ModelSnapshot
+    [Migration("20251206164133_AddImageUrlToQuizQuestion")]
+    partial class AddImageUrlToQuizQuestion
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1870,72 +1873,6 @@ namespace DataLayer.Migrations
                     b.ToTable("User", (string)null);
                 });
 
-            modelBuilder.Entity("DataLayer.Entities.VideoAnalysis", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<DateTime?>("AnalyzedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<DateTime?>("DeletedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("ErrorMessage")
-                        .HasMaxLength(1000)
-                        .HasColumnType("nvarchar(1000)");
-
-                    b.Property<string>("KeyPoints")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("LessonId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("MediaId")
-                        .IsRequired()
-                        .HasMaxLength(450)
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<int>("Status")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Summary")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("SummaryType")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("Transcription")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("TranscriptionLanguage")
-                        .HasMaxLength(10)
-                        .HasColumnType("nvarchar(10)");
-
-                    b.Property<DateTime>("UpdatedAt")
-                        .HasColumnType("datetime2");
-
-                    b.Property<int?>("VideoDurationSeconds")
-                        .HasColumnType("int");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex(new[] { "LessonId" }, "IX_VideoAnalysis_LessonId");
-
-                    b.HasIndex(new[] { "MediaId" }, "IX_VideoAnalysis_MediaId");
-
-                    b.HasIndex(new[] { "MediaId" }, "UQ_VideoAnalysis_MediaId")
-                        .IsUnique();
-
-                    b.ToTable("VideoAnalysis", (string)null);
-                });
-
             modelBuilder.Entity("DataLayer.Entities.Wallet", b =>
                 {
                     b.Property<string>("Id")
@@ -2570,27 +2507,6 @@ namespace DataLayer.Migrations
                         .HasConstraintName("FK__User__RoleId__02084FDA");
 
                     b.Navigation("Role");
-                });
-
-            modelBuilder.Entity("DataLayer.Entities.VideoAnalysis", b =>
-                {
-                    b.HasOne("DataLayer.Entities.Lesson", "Lesson")
-                        .WithMany()
-                        .HasForeignKey("LessonId")
-                        .OnDelete(DeleteBehavior.Restrict)
-                        .IsRequired()
-                        .HasConstraintName("FK_VideoAnalysis_Lesson");
-
-                    b.HasOne("DataLayer.Entities.Media", "Media")
-                        .WithMany()
-                        .HasForeignKey("MediaId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired()
-                        .HasConstraintName("FK_VideoAnalysis_Media");
-
-                    b.Navigation("Lesson");
-
-                    b.Navigation("Media");
                 });
 
             modelBuilder.Entity("DataLayer.Entities.Wallet", b =>

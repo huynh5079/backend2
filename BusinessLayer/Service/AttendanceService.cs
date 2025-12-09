@@ -3,6 +3,7 @@ using BusinessLayer.Service.Interface;
 using DataLayer.Entities;
 using DataLayer.Enum;
 using DataLayer.Repositories.Abstraction;
+using DataLayer.Repositories.Abstraction.Schedule;
 using Microsoft.EntityFrameworkCore;
 using System;
 using System.Collections.Generic;
@@ -15,48 +16,47 @@ namespace BusinessLayer.Service
     public class AttendanceService : IAttendanceService
     {
         private readonly IUnitOfWork _uow;
-        private readonly TpeduContext _ctx;
+        private readonly IScheduleUnitOfWork _scheduleUow;
         private readonly INotificationService _notificationService;
 
-        public AttendanceService(IUnitOfWork uow, TpeduContext ctx, INotificationService notificationService)
+        public AttendanceService(IUnitOfWork uow, IScheduleUnitOfWork scheduleUow, INotificationService notificationService)
         {
             _uow = uow;
-            _ctx = ctx;
+            _scheduleUow = scheduleUow;
             _notificationService = notificationService;
         }
 
         public async Task<AttendanceRecordDto> MarkAsync(string tutorUserId, MarkAttendanceRequest req)
         {
             // 1) Validate lesson + quyền tutor
-            var lesson = await _ctx.Lessons
-                .Include(l => l.Class)
-                .Include(l => l.ScheduleEntries)
-                .FirstOrDefaultAsync(l => l.Id == req.LessonId)
-                ?? throw new KeyNotFoundException("không tìm thấy buổi học");
+            var lesson = await _uow.Attendances.GetLessonWithTutorDataAsync(req.LessonId)
+                ?? throw new KeyNotFoundException("Không tìm thấy buổi học");
 
-            var owningTutorId = lesson.Class?.TutorId
-                                ?? lesson.ScheduleEntries.FirstOrDefault()?.TutorId;
-            if (string.IsNullOrEmpty(owningTutorId))
-                throw new InvalidOperationException("lesson không gắn tutor");
+            // owningTutorId là TutorProfile.Id, không phải UserId
+            // Cần lấy Tutor.UserId để so sánh
+            var owningTutorUserId = lesson.Class?.Tutor?.UserId
+                                    ?? lesson.ScheduleEntries.FirstOrDefault()?.Tutor?.UserId;
+            if (string.IsNullOrEmpty(owningTutorUserId))
+                throw new InvalidOperationException("Buổi học không gắn với gia sư");
 
-            if (owningTutorId != tutorUserId)
-                throw new UnauthorizedAccessException("bạn không có quyền điểm danh buổi này");
+            if (owningTutorUserId != tutorUserId)
+                throw new UnauthorizedAccessException("Bạn không có quyền điểm danh buổi này");
 
             // 2) Validate student
             var student = await _uow.StudentProfiles.GetByIdAsync(req.StudentId)
-                          ?? throw new KeyNotFoundException("không tìm thấy học sinh");
+                          ?? throw new KeyNotFoundException("Không tìm thấy học sinh");
 
             if (lesson.ClassId != null)
             {
-                var inClass = await _ctx.ClassAssigns
-                    .AnyAsync(x => x.ClassId == lesson.ClassId && x.StudentId == student.Id);
-                if (!inClass) throw new InvalidOperationException("học sinh không thuộc lớp");
+                var studentIds = await _uow.Attendances.GetStudentIdsInClassAsync(lesson.ClassId);
+                if (!studentIds.Contains(student.Id))
+                    throw new InvalidOperationException("Học sinh không thuộc lớp");
             }
             // Với 1-1, nếu bạn muốn ràng buộc Lesson–Student thì thêm validate tại đây.
 
             // 3) Parse status
             if (!Enum.TryParse<AttendanceStatus>(req.Status, true, out var status))
-                throw new ArgumentException("trạng thái không hợp lệ");
+                throw new ArgumentException("Trạng thái không hợp lệ");
 
             // 4) Upsert attendance
             var att = await _uow.Attendances.FindAsync(req.LessonId, req.StudentId);
@@ -128,26 +128,20 @@ namespace BusinessLayer.Service
             Dictionary<string, string> studentStatusMap, string? notes = null)
         {
             // Load lesson & quyền
-            var lesson = await _ctx.Lessons
-                .Include(l => l.Class)
-                .Include(l => l.ScheduleEntries)
-                .FirstOrDefaultAsync(l => l.Id == lessonId)
-                ?? throw new KeyNotFoundException("không tìm thấy buổi học");
+            var lesson = await _uow.Attendances.GetLessonWithTutorDataAsync(lessonId)
+                ?? throw new KeyNotFoundException("Không tìm thấy buổi học");
 
-            var owningTutorId = lesson.Class?.TutorId
-                                ?? lesson.ScheduleEntries.FirstOrDefault()?.TutorId;
-            if (string.IsNullOrEmpty(owningTutorId) || owningTutorId != tutorUserId)
-                throw new UnauthorizedAccessException("bạn không có quyền điểm danh buổi này");
+            var owningTutorUserId = lesson.Class?.Tutor?.UserId
+                                    ?? lesson.ScheduleEntries.FirstOrDefault()?.Tutor?.UserId;
+            if (string.IsNullOrEmpty(owningTutorUserId) || owningTutorUserId != tutorUserId)
+                throw new UnauthorizedAccessException("Bạn không có quyền điểm danh buổi này");
 
             // DS học sinh thuộc lớp (nếu là lớp)
             HashSet<string>? classStudentIds = null;
             if (lesson.ClassId != null)
             {
-                classStudentIds = (await _ctx.ClassAssigns
-                    .Where(x => x.ClassId == lesson.ClassId)
-                    .Select(x => x.StudentId!)
-                    .ToListAsync())
-                    .ToHashSet();
+                var studentIds = await _uow.Attendances.GetStudentIdsInClassAsync(lesson.ClassId);
+                classStudentIds = studentIds.ToHashSet();
             }
 
             var result = new List<AttendanceRecordDto>();
@@ -202,10 +196,11 @@ namespace BusinessLayer.Service
             if (result.Count > 0)
             {
                 var stuIds = result.Select(r => r.StudentId).Distinct().ToList();
-                var studentProfiles = await _ctx.StudentProfiles
-                    .Where(s => stuIds.Contains(s.Id))
-                    .Include(s => s.User)
-                    .ToListAsync();
+                var studentProfilesQuery = await _uow.StudentProfiles.GetAllAsync(
+                    filter: s => stuIds.Contains(s.Id),
+                    includes: q => q.Include(s => s.User)
+                );
+                var studentProfiles = studentProfilesQuery.ToList();
 
                 foreach (var studentProfile in studentProfiles)
                 {
@@ -255,16 +250,13 @@ namespace BusinessLayer.Service
         public async Task<IEnumerable<AttendanceRecordDto>> GetLessonAttendanceAsync(string tutorUserId, string lessonId)
         {
             // quyền
-            var lesson = await _ctx.Lessons
-                .Include(l => l.Class)
-                .Include(l => l.ScheduleEntries)
-                .FirstOrDefaultAsync(l => l.Id == lessonId)
-                ?? throw new KeyNotFoundException("không tìm thấy buổi học");
+            var lesson = await _uow.Attendances.GetLessonWithTutorDataAsync(lessonId)
+                ?? throw new KeyNotFoundException("Không tìm thấy buổi học");
 
-            var owningTutorId = lesson.Class?.TutorId
-                                ?? lesson.ScheduleEntries.FirstOrDefault()?.TutorId;
-            if (owningTutorId != tutorUserId)
-                throw new UnauthorizedAccessException("không có quyền");
+            var owningTutorUserId = lesson.Class?.Tutor?.UserId
+                                    ?? lesson.ScheduleEntries.FirstOrDefault()?.Tutor?.UserId;
+            if (owningTutorUserId != tutorUserId)
+                throw new UnauthorizedAccessException("Bạn không có quyền xem danh sách điểm danh này");
 
             var atts = await _uow.Attendances.GetByLessonAsync(lessonId);
 
@@ -292,22 +284,25 @@ namespace BusinessLayer.Service
             var startUtc = start.Date.ToUniversalTime();
             var endUtc = end.Date.AddDays(1).ToUniversalTime();
 
+            // Lấy TutorProfile.Id từ UserId
+            var tutorProfile = await _uow.TutorProfiles.GetByUserIdAsync(tutorUserId)
+                ?? throw new KeyNotFoundException("Không tìm thấy thông tin gia sư");
+
             // Lấy schedule entries thuộc tutor trong range
-            var entries = await _ctx.ScheduleEntries
-                .Where(se => se.TutorId == tutorUserId
+            var entriesQuery = await _scheduleUow.ScheduleEntries.GetAllAsync(
+                filter: se => se.TutorId == tutorProfile.Id
                           && se.EntryType == EntryType.LESSON
                           && se.DeletedAt == null
                           && se.StartTime < endUtc
-                          && se.EndTime > startUtc)
-                .Include(se => se.Lesson)
-                .OrderBy(se => se.StartTime)
-                .ToListAsync();
+                          && se.EndTime > startUtc,
+                includes: q => q.Include(se => se.Lesson)
+                                .OrderBy(se => se.StartTime)
+            );
+            var entries = entriesQuery.ToList();
 
             var lessonIds = entries.Where(e => e.LessonId != null).Select(e => e.LessonId!).Distinct().ToList();
 
-            var atts = await _ctx.Attendances
-                .Where(a => lessonIds.Contains(a.LessonId))
-                .ToListAsync();
+            var atts = await _uow.Attendances.GetAttendancesByLessonIdsAsync(lessonIds);
 
             // Với lớp: nếu muốn biết tổng sĩ số chuẩn, load ClassAssign; ở đây dùng số bản ghi attendance hiện có
             var list = new List<ScheduleCellAttendanceDto>();
@@ -344,21 +339,24 @@ namespace BusinessLayer.Service
                       ?? throw new KeyNotFoundException("không tìm thấy student profile");
 
             // Entry thuộc lesson có attendance của HS này
-            var entries = await _ctx.ScheduleEntries
-                .Where(se => se.EntryType == EntryType.LESSON
+            var entriesQuery = await _scheduleUow.ScheduleEntries.GetAllAsync(
+                filter: se => se.EntryType == EntryType.LESSON
                           && se.DeletedAt == null
                           && se.StartTime < endUtc
-                          && se.EndTime > startUtc)
-                .Include(se => se.Lesson)
-                .ToListAsync();
+                          && se.EndTime > startUtc,
+                includes: q => q.Include(se => se.Lesson)
+                                    .ThenInclude(l => l.Class)
+                                        .ThenInclude(c => c.ClassAssigns)
+            );
+            var entries = entriesQuery
+                .Where(se => se.Lesson != null
+                          && se.Lesson.Class != null
+                          && se.Lesson.Class.ClassAssigns.Any(ca => ca.StudentId == stu.Id))
+                .ToList();
 
-            var lessonIds = entries.Where(e => e.LessonId != null)
-                                   .Select(e => e.LessonId!)
-                                   .Distinct().ToList();
+            var lessonIds = entries.Where(e => e.LessonId != null).Select(e => e.LessonId!).ToList();
 
-            var atts = await _ctx.Attendances
-                .Where(a => a.StudentId == stu.Id && lessonIds.Contains(a.LessonId))
-                .ToListAsync();
+            var atts = await _uow.Attendances.GetAttendancesByLessonIdsAsync(lessonIds);
 
             // Overlay mỗi entry của HS (1-1 sẽ có 1 record/lesson)
             var list = new List<ScheduleCellAttendanceDto>();
@@ -397,21 +395,24 @@ namespace BusinessLayer.Service
             var startUtc = start.Date.ToUniversalTime();
             var endUtc = end.Date.AddDays(1).ToUniversalTime();
 
-            var entries = await _ctx.ScheduleEntries
-                .Where(se => se.EntryType == EntryType.LESSON
+            var entriesQuery = await _scheduleUow.ScheduleEntries.GetAllAsync(
+                filter: se => se.EntryType == EntryType.LESSON
                           && se.DeletedAt == null
                           && se.StartTime < endUtc
-                          && se.EndTime > startUtc)
-                .Include(se => se.Lesson)
-                .ToListAsync();
+                          && se.EndTime > startUtc,
+                includes: q => q.Include(se => se.Lesson)
+                                    .ThenInclude(l => l.Class)
+                                        .ThenInclude(c => c.ClassAssigns)
+            );
+            var entries = entriesQuery
+                .Where(se => se.Lesson != null
+                          && se.Lesson.Class != null
+                          && se.Lesson.Class.ClassAssigns.Any(ca => ca.StudentId == stu.Id))
+                .ToList();
 
-            var lessonIds = entries.Where(e => e.LessonId != null)
-                                   .Select(e => e.LessonId!)
-                                   .Distinct().ToList();
+            var lessonIds = entries.Where(e => e.LessonId != null).Select(e => e.LessonId!).ToList();
 
-            var atts = await _ctx.Attendances
-                .Where(a => a.StudentId == stu.Id && lessonIds.Contains(a.LessonId))
-                .ToListAsync();
+            var atts = await _uow.Attendances.GetAttendancesByLessonIdsAsync(lessonIds);
 
             var list = new List<ScheduleCellAttendanceDto>();
             foreach (var e in entries)
@@ -438,42 +439,32 @@ namespace BusinessLayer.Service
 
         public async Task<List<LessonRosterItemDto>> GetLessonRosterForTutorAsync(string tutorUserId, string lessonId)
         {
-            var lesson = await _ctx.Lessons
-                .Include(l => l.Class)
-                .Include(l => l.ScheduleEntries)
-                .FirstOrDefaultAsync(l => l.Id == lessonId)
-                ?? throw new KeyNotFoundException("không tìm thấy buổi học");
+            var lesson = await _uow.Attendances.GetLessonWithTutorDataAsync(lessonId)
+                ?? throw new KeyNotFoundException("Không tìm thấy buổi học");
 
-            var owningTutorId = lesson.Class?.TutorId
-                                ?? lesson.ScheduleEntries.FirstOrDefault()?.TutorId;
-            if (string.IsNullOrEmpty(owningTutorId) || owningTutorId != tutorUserId)
-                throw new UnauthorizedAccessException("bạn không có quyền xem roster buổi này");
+            var owningTutorUserId = lesson.Class?.Tutor?.UserId
+                                    ?? lesson.ScheduleEntries.FirstOrDefault()?.Tutor?.UserId;
+            if (string.IsNullOrEmpty(owningTutorUserId) || owningTutorUserId != tutorUserId)
+                throw new UnauthorizedAccessException("Bạn không có quyền xem danh sách học sinh của buổi này");
 
             if (lesson.ClassId == null)
-                throw new InvalidOperationException("buổi 1-1 không có roster — điểm danh trực tiếp.");
+                throw new InvalidOperationException("Buổi học 1-1 không có danh sách, vui lòng điểm danh trực tiếp");
 
             // DS học sinh đã đăng ký lớp
-            var assigns = await _ctx.ClassAssigns
-                .Where(x => x.ClassId == lesson.ClassId &&
-                            x.ApprovalStatus == ApprovalStatus.Approved)
-                .Include(x => x.Student)            // StudentProfile
-                .ThenInclude(s => s!.User)          // User
-                .ToListAsync();
+            var assigns = await _uow.Attendances.GetClassAssignsWithStudentsAsync(lesson.ClassId);
 
             var studentIds = assigns.Where(x => x.StudentId != null)
                                     .Select(x => x.StudentId!)
                                     .ToList();
 
             // Attendance hiện có cho lesson này (để biết status hiện tại)
-            var atts = await _ctx.Attendances
-                .Where(a => a.LessonId == lessonId && studentIds.Contains(a.StudentId))
-                .ToDictionaryAsync(a => a.StudentId, a => a.Status.ToString());
+            var atts = await _uow.Attendances.GetAttendanceStatusMapAsync(lessonId, studentIds);
 
             var roster = assigns.Select(a => new LessonRosterItemDto
             {
                 StudentId = a.StudentId!,
                 StudentUserId = a.Student!.UserId!,
-                StudentName = a.Student!.User?.UserName ?? "Student",
+                StudentName = a.Student!.User?.UserName ?? "Học sinh",
                 Email = a.Student!.User?.Email ?? "",
                 AvatarUrl = a.Student!.User?.AvatarUrl,
                 CurrentStatus = atts.TryGetValue(a.StudentId!, out var st) ? st : null

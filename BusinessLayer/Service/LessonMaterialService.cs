@@ -1,6 +1,7 @@
 ﻿using BusinessLayer.DTOs.LessonMaterials;
 using BusinessLayer.Service.Interface;
 using BusinessLayer.Storage;
+using System.Threading;
 using DataLayer.Entities;
 using DataLayer.Enum;
 using DataLayer.Repositories.Abstraction;
@@ -19,11 +20,16 @@ namespace BusinessLayer.Service
     {
         private readonly IUnitOfWork _uow;
         private readonly IFileStorageService _storage;
+        private readonly IVideoAnalysisService? _videoAnalysisService;
 
-        public LessonMaterialService(IUnitOfWork uow, IFileStorageService storage)
+        public LessonMaterialService(
+            IUnitOfWork uow, 
+            IFileStorageService storage,
+            IVideoAnalysisService? videoAnalysisService = null)
         {
             _uow = uow;
             _storage = storage;
+            _videoAnalysisService = videoAnalysisService;
         }
 
         private static MaterialItemDto Map(Media m) => new()
@@ -115,6 +121,25 @@ namespace BusinessLayer.Service
                 };
                 await _uow.Media.CreateAsync(m);
                 list.Add(m);
+
+                // Tự động trigger phân tích video nếu là file video
+                if (_videoAnalysisService != null && IsVideoFile(up.ContentType))
+                {
+                    // Chạy trong background để không block response
+                    _ = Task.Run(async () =>
+                    {
+                        try
+                        {
+                            await _videoAnalysisService.AnalyzeVideoAsync(m.Id, lessonId, m.FileUrl, ct);
+                        }
+                        catch (Exception ex)
+                        {
+                            // Log error nhưng không throw (để không ảnh hưởng upload)
+                            // Có thể log vào hệ thống logging sau
+                            Console.WriteLine($"Error analyzing video {m.Id}: {ex.Message}");
+                        }
+                    }, ct);
+                }
             }
             await _uow.SaveChangesAsync();
             return list.Select(Map).ToList();
@@ -170,6 +195,23 @@ namespace BusinessLayer.Service
             await _uow.Media.UpdateAsync(media);
             await _uow.SaveChangesAsync();
             return true;
+        }
+
+        /// <summary>
+        /// (Helper) Kiểm tra file có phải là video không
+        /// </summary>
+        private static bool IsVideoFile(string mediaType)
+        {
+            if (string.IsNullOrEmpty(mediaType))
+                return false;
+
+            var lowerType = mediaType.ToLower();
+            return lowerType.StartsWith("video/") ||
+                   lowerType.Contains("mp4") ||
+                   lowerType.Contains("mov") ||
+                   lowerType.Contains("webm") ||
+                   lowerType.Contains("mkv") ||
+                   lowerType.Contains("avi");
         }
 
         /// <summary>

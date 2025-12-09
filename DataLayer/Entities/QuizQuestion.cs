@@ -7,6 +7,7 @@ public partial class QuizQuestion : BaseEntity
 {
     public string QuizId { get; set; }
     public string QuestionText { get; set; }
+    public string? ImageUrl { get; set; } // Optional image for question
     public int OrderIndex { get; set; } // Thứ tự câu hỏi
     public int Points { get; set; } // Điểm của câu hỏi này (default = 1)
     

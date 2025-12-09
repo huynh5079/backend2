@@ -65,8 +65,51 @@ namespace DataLayer.Repositories
 
             var rows = await query.ToListAsync();
 
-            // Trả “att = null” tại đây; service sẽ load attendance theo group để tổng hợp
+            // Trả "att = null" tại đây; service sẽ load attendance theo group để tổng hợp
             return rows.Select(x => (x.entry, x.lesson, (Attendance?)null)).ToList();
+        }
+
+        // === New methods - Moved from Service ===
+
+        public async Task<Lesson?> GetLessonWithTutorDataAsync(string lessonId)
+        {
+            return await _context.Lessons
+                .Include(l => l.Class)
+                    .ThenInclude(c => c.Tutor)
+                .Include(l => l.ScheduleEntries)
+                    .ThenInclude(se => se.Tutor)
+                .FirstOrDefaultAsync(l => l.Id == lessonId);
+        }
+
+        public async Task<List<string>> GetStudentIdsInClassAsync(string classId)
+        {
+            return await _context.ClassAssigns
+                .Where(x => x.ClassId == classId)
+                .Select(x => x.StudentId!)
+                .ToListAsync();
+        }
+
+        public async Task<List<Attendance>> GetAttendancesByLessonIdsAsync(List<string> lessonIds)
+        {
+            return await _context.Attendances
+                .Where(a => lessonIds.Contains(a.LessonId))
+                .ToListAsync();
+        }
+
+        public async Task<Dictionary<string, string>> GetAttendanceStatusMapAsync(string lessonId, List<string> studentIds)
+        {
+            return await _context.Attendances
+                .Where(a => a.LessonId == lessonId && studentIds.Contains(a.StudentId))
+                .ToDictionaryAsync(a => a.StudentId, a => a.Status.ToString());
+        }
+
+        public async Task<List<ClassAssign>> GetClassAssignsWithStudentsAsync(string classId)
+        {
+            return await _context.ClassAssigns
+                .Where(x => x.ClassId == classId && x.ApprovalStatus == ApprovalStatus.Approved)
+                .Include(x => x.Student)
+                    .ThenInclude(s => s!.User)
+                .ToListAsync();
         }
     }
 }

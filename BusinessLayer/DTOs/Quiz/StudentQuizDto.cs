@@ -21,6 +21,7 @@ namespace BusinessLayer.DTOs.Quiz
     {
         public string Id { get; set; }
         public string QuestionText { get; set; }
+        public string? ImageUrl { get; set; }
         public int OrderIndex { get; set; }
         public int Points { get; set; }
         public string OptionA { get; set; }

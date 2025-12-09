@@ -21,9 +21,32 @@ namespace TPEdu_API.Controllers
         [Authorize(Roles = "Tutor")]
         public async Task<IActionResult> Mark([FromBody] MarkAttendanceRequest req)
         {
-            var tutorId = User.RequireUserId();
-            var dto = await _svc.MarkAsync(tutorId, req);
-            return Ok(ApiResponse<object>.Ok(dto, "điểm danh thành công"));
+            try
+            {
+                var tutorId = User.RequireUserId();
+                var dto = await _svc.MarkAsync(tutorId, req);
+                return Ok(ApiResponse<object>.Ok(dto, "điểm danh thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (ArgumentException ex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}"));
+            }
         }
 
         // Tutor mark bulk
@@ -31,9 +54,28 @@ namespace TPEdu_API.Controllers
         [Authorize(Roles = "Tutor")]
         public async Task<IActionResult> MarkBulk(string lessonId, [FromBody] BulkMarkRequest body)
         {
-            var tutorId = User.RequireUserId();
-            var rs = await _svc.BulkMarkForLessonAsync(tutorId, lessonId, body.StudentStatus, body.Notes);
-            return Ok(ApiResponse<object>.Ok(rs, "điểm danh hàng loạt thành công"));
+            try
+            {
+                var tutorId = User.RequireUserId();
+                var rs = await _svc.BulkMarkForLessonAsync(tutorId, lessonId, body.StudentStatus, body.Notes);
+                return Ok(ApiResponse<object>.Ok(rs, "điểm danh hàng loạt thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}"));
+            }
         }
 
         // Tutor xem danh sách 1 buổi

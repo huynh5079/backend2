@@ -220,7 +220,7 @@ namespace BusinessLayer.Service.ScheduleService
                     {
                         if (esc.Status == EscrowStatus.Held)
                         {
-                            // Refund full cho học sinh
+                            // Refund full for
                             await _escrowService.RefundAsync(studentUserId, new RefundEscrowRequest { EscrowId = esc.Id });
                         }
                         else if (esc.Status == EscrowStatus.PartiallyReleased)
@@ -238,7 +238,7 @@ namespace BusinessLayer.Service.ScheduleService
                         }
                     }
 
-                    // Cập nhật PaymentStatus của ClassAssign
+                    // update PaymentStatus for ClassAssign
                     assignment.PaymentStatus = PaymentStatus.Refunded;
                     await _uow.ClassAssigns.UpdateAsync(assignment);
 
@@ -479,17 +479,15 @@ namespace BusinessLayer.Service.ScheduleService
 
         public async Task<List<RelatedResourceDto>> GetMyStudentsAsync(string tutorUserId)
         {
-            // SỬA LỖI 2: Gọi đúng tên hàm trong Interface
             var tutorProfileId = await _tutorProfileService.GetTutorProfileIdByUserIdAsync(tutorUserId);
 
-            // SỬA LỖI 1: tutorProfileId là string?, check null trực tiếp
+            // tutorProfileId string?, check null
             if (string.IsNullOrEmpty(tutorProfileId)) return new List<RelatedResourceDto>();
 
             var students = await _context.ClassAssigns
                 .Include(ca => ca.Class)
                 .Include(ca => ca.Student)
                     .ThenInclude(s => s.User)
-                // SỬA LỖI 1: So sánh trực tiếp, KHÔNG dùng .Value
                 .Where(ca => ca.Class.TutorId == tutorProfileId
                              && ca.Class.Status != ClassStatus.Cancelled)
                 .Select(ca => ca.Student)

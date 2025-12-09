@@ -10,7 +10,7 @@ namespace BusinessLayer.DTOs.Quiz
         public decimal ScorePercentage { get; set; }
         public bool IsPassed { get; set; }
         public DateTime SubmittedAt { get; set; }
-        public List<QuizAnswerResultDto> AnswerDetails { get; set; }
+        public List<QuizAnswerResultDto> AnswerDetails { get; set; } = new List<QuizAnswerResultDto>();
     }
 
     public class QuizAnswerResultDto

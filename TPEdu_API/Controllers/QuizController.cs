@@ -32,7 +32,7 @@ namespace TPEdu_API.Controllers
             {
                 var tutorUserId = User.RequireUserId();
                 var quizId = await _quizService.CreateQuizFromFileAsync(tutorUserId, dto, ct);
-                return Ok(ApiResponse<object>.Ok(new { quizId }, "Quiz created successfully"));
+                return Ok(ApiResponse<object>.Ok(new { quizId }, "Tạo quiz thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -48,7 +48,7 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<object>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -65,9 +65,9 @@ namespace TPEdu_API.Controllers
                 var result = await _quizService.DeleteQuizAsync(tutorUserId, quizId);
                 
                 if (!result)
-                    return NotFound(ApiResponse<object>.Fail("Quiz not found"));
+                    return NotFound(ApiResponse<object>.Fail("Không tìm thấy quiz"));
                 
-                return Ok(ApiResponse<object>.Ok(null, "Quiz deleted successfully"));
+                return Ok(ApiResponse<object>.Ok(null, "Xóa quiz thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -75,7 +75,7 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<object>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -90,7 +90,7 @@ namespace TPEdu_API.Controllers
             {
                 var tutorUserId = User.RequireUserId();
                 var quiz = await _quizService.GetQuizByIdAsync(tutorUserId, quizId);
-                return Ok(ApiResponse<TutorQuizDto>.Ok(quiz, "Quiz retrieved successfully"));
+                return Ok(ApiResponse<TutorQuizDto>.Ok(quiz, "Lấy thông tin quiz thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -102,7 +102,7 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<TutorQuizDto>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<TutorQuizDto>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -117,7 +117,7 @@ namespace TPEdu_API.Controllers
             {
                 var userId = User.RequireUserId();
                 var quizzes = await _quizService.GetQuizzesByLessonAsync(userId, lessonId);
-                return Ok(ApiResponse<IEnumerable<QuizSummaryDto>>.Ok(quizzes, "Quizzes retrieved successfully"));
+                return Ok(ApiResponse<IEnumerable<QuizSummaryDto>>.Ok(quizzes, "Lấy danh sách quiz thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -129,7 +129,42 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<IEnumerable<QuizSummaryDto>>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<IEnumerable<QuizSummaryDto>>.Fail($"Lỗi hệ thống: {ex.Message}"));
+            }
+        }
+
+        /// <summary>
+        /// Tutor updates a quiz question (can add/change image)
+        /// </summary>
+        [HttpPut("question/{questionId}")]
+        [Authorize(Roles = "Tutor")]
+        public async Task<IActionResult> UpdateQuestion(string questionId, [FromForm] UpdateQuizQuestionDto dto)
+        {
+            try
+            {
+                var tutorUserId = User.RequireUserId();
+                var result = await _quizService.UpdateQuizQuestionAsync(tutorUserId, questionId, dto);
+                
+                if (!result)
+                    return NotFound(ApiResponse<object>.Fail("Không tìm thấy câu hỏi"));
+                
+                return Ok(ApiResponse<object>.Ok(null, "Cập nhật câu hỏi thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -146,7 +181,7 @@ namespace TPEdu_API.Controllers
             {
                 var studentUserId = User.RequireUserId();
                 var quiz = await _quizService.StartQuizAsync(studentUserId, quizId);
-                return Ok(ApiResponse<StudentQuizDto>.Ok(quiz, "Quiz loaded successfully"));
+                return Ok(ApiResponse<StudentQuizDto>.Ok(quiz, "Tải quiz thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -162,7 +197,7 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<StudentQuizDto>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<StudentQuizDto>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -177,7 +212,7 @@ namespace TPEdu_API.Controllers
             {
                 var studentUserId = User.RequireUserId();
                 var result = await _quizService.SubmitQuizAsync(studentUserId, dto);
-                return Ok(ApiResponse<QuizResultDto>.Ok(result, "Quiz submitted successfully"));
+                return Ok(ApiResponse<QuizResultDto>.Ok(result, "Nộp bài thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -189,7 +224,7 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<QuizResultDto>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<QuizResultDto>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
 
@@ -204,7 +239,7 @@ namespace TPEdu_API.Controllers
             {
                 var studentUserId = User.RequireUserId();
                 var attempts = await _quizService.GetMyAttemptsAsync(studentUserId, quizId);
-                return Ok(ApiResponse<IEnumerable<QuizResultDto>>.Ok(attempts, "Attempts retrieved successfully"));
+                return Ok(ApiResponse<IEnumerable<QuizResultDto>>.Ok(attempts, "Lấy lịch sử làm bài thành công"));
             }
             catch (UnauthorizedAccessException ex)
             {
@@ -212,7 +247,36 @@ namespace TPEdu_API.Controllers
             }
             catch (Exception ex)
             {
-                return StatusCode(500, ApiResponse<IEnumerable<QuizResultDto>>.Fail($"Internal server error: {ex.Message}"));
+                return StatusCode(500, ApiResponse<IEnumerable<QuizResultDto>>.Fail($"Lỗi hệ thống: {ex.Message}"));
+            }
+        }
+
+        // ===== PARENT ENDPOINTS =====
+
+        /// <summary>
+        /// Parent xem lịch sử làm quiz của con
+        /// </summary>
+        [HttpGet("parent/{studentProfileId}/quiz/{quizId}/attempts")]
+        [Authorize(Roles = "Parent")]
+        public async Task<IActionResult> GetStudentAttemptsForParent(string studentProfileId, string quizId)
+        {
+            try
+            {
+                var parentUserId = User.RequireUserId();
+                var attempts = await _quizService.GetStudentAttemptsForParentAsync(parentUserId, studentProfileId, quizId);
+                return Ok(ApiResponse<IEnumerable<QuizResultDto>>.Ok(attempts, "Lấy kết quả quiz của học sinh thành công"));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<IEnumerable<QuizResultDto>>.Fail(ex.Message));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<IEnumerable<QuizResultDto>>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<IEnumerable<QuizResultDto>>.Fail($"Lỗi hệ thống: {ex.Message}"));
             }
         }
     }

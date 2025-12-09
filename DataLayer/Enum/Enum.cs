@@ -295,4 +295,12 @@ namespace DataLayer.Enum
         Practice,  // Bài tập ôn tập - không giới hạn số lần làm
         Test       // Bài kiểm tra - có giới hạn số lần làm
     }
+
+    public enum ValidationIssue
+    {
+        None,
+        InappropriateContent,
+        SubjectMismatch,
+        InappropriateImage
+    }
 }

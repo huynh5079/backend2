@@ -107,24 +107,31 @@ builder.Services.AddScoped<ICommissionService, CommissionService>();
 builder.Services.AddScoped<ICommissionManagementService, CommissionManagementService>();
 builder.Services.AddScoped<ISystemSettingsService, SystemSettingsService>();
 builder.Services.AddScoped<IClassStatusCheckService, ClassStatusCheckService>();
+builder.Services.AddScoped<IFeedbackService, FeedbackService>();
+builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<IFavoriteTutorService, FavoriteTutorService>();
+builder.Services.AddScoped<IQuizFileParserService, QuizFileParserService>();
+builder.Services.AddScoped<IQuizContentValidatorService, QuizContentValidatorService>();
+builder.Services.AddScoped<IQuizService, QuizService>();
+builder.Services.AddScoped<CloudinaryStorageService>();
 
 // Background Services
 builder.Services.AddHostedService<ClassStatusCheckBackgroundService>();
 builder.Services.AddScoped<INotificationService, NotificationService>();
 builder.Services.AddScoped<INotificationHubService, NotificationHubService>();
+builder.Services.AddSingleton<TPEdu_API.Services.ChatConnectionManager>();
 builder.Services.AddScoped<IChatHubService, TPEdu_API.Services.ChatHubService>();
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IMomoPaymentService, MomoPaymentService>();
-builder.Services.AddScoped<ITransactionRepository, TransactionRepository>();
 builder.Services.AddScoped<IFeedbackService, FeedbackService>();
-builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IFavoriteTutorService, FavoriteTutorService>();
-
-// Quiz Feature Services
 builder.Services.AddScoped<IQuizFileParserService, QuizFileParserService>();
 builder.Services.AddScoped<IQuizService, QuizService>();
+builder.Services.AddScoped<IVideoAnalysisService, VideoAnalysisService>();
+builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
 
 // Schedule Transactions
 builder.Services.AddScoped<IAvailabilityBlockService, AvailabilityBlockService>();
@@ -167,12 +174,11 @@ builder.Services.AddScoped<IFavoriteTutorRepository, FavoriteTutorRepository>();
 builder.Services.AddScoped<IConversationRepository, ConversationRepository>();
 builder.Services.AddScoped<ITutorDepositEscrowRepository, TutorDepositEscrowRepository>();
 builder.Services.AddScoped<ISystemSettingsRepository, SystemSettingsRepository>();
-
-// Quiz Feature Repositories
 builder.Services.AddScoped<IQuizRepository, QuizRepository>();
 builder.Services.AddScoped<IQuizQuestionRepository, QuizQuestionRepository>();
 builder.Services.AddScoped<IStudentQuizAttemptRepository, StudentQuizAttemptRepository>();
 builder.Services.AddScoped<IStudentQuizAnswerRepository, StudentQuizAnswerRepository>();
+builder.Services.AddScoped<DataLayer.Repositories.Abstraction.IVideoAnalysisRepository, DataLayer.Repositories.VideoAnalysisRepository>();
 
 builder.Services.AddScoped<IUnitOfWork, UnitOfWork>();
 

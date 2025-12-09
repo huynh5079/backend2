@@ -11,5 +11,6 @@ namespace BusinessLayer.Service.Interface.IScheduleService
     {
         Task<IEnumerable<ClassLessonDto>> GetLessonsByClassIdAsync(string classId);
         Task<LessonDetailDto?> GetLessonDetailAsync(string lessonId);
+        Task<TutorLessonDetailDto?> GetTutorLessonDetailAsync(string lessonId, string tutorUserId);
     }
 }

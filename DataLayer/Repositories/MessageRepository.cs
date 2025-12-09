@@ -114,7 +114,7 @@ namespace DataLayer.Repositories
                 .Include(m => m.Sender)
                 .Include(m => m.Receiver)
                 .Where(m => m.ConversationId == conversationId && m.DeletedAt == null)
-                .OrderByDescending(m => m.CreatedAt);
+                .OrderBy(m => m.CreatedAt); // Sort cũ → mới (ascending)
 
             var totalCount = await query.CountAsync();
             var items = await query

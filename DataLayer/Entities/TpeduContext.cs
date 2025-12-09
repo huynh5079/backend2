@@ -49,6 +49,7 @@ public partial class TpeduContext : DbContext
     public virtual DbSet<QuizQuestion> QuizQuestions { get; set; }
     public virtual DbSet<StudentQuizAttempt> StudentQuizAttempts { get; set; }
     public virtual DbSet<StudentQuizAnswer> StudentQuizAnswers { get; set; }
+    public virtual DbSet<VideoAnalysis> VideoAnalyses { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -931,6 +932,39 @@ public partial class TpeduContext : DbContext
                 .HasForeignKey(d => d.QuestionId)
                 .OnDelete(DeleteBehavior.Restrict)
                 .HasConstraintName("FK_StudentQuizAnswer_Question");
+        });
+
+        // ===== Video Analysis Configuration =====
+        modelBuilder.Entity<VideoAnalysis>(entity =>
+        {
+            entity.ToTable("VideoAnalysis");
+
+            entity.HasIndex(e => e.MediaId, "IX_VideoAnalysis_MediaId");
+            entity.HasIndex(e => e.LessonId, "IX_VideoAnalysis_LessonId");
+            entity.HasIndex(e => new { e.MediaId }, "UQ_VideoAnalysis_MediaId")
+                .IsUnique();
+
+            entity.Property(e => e.MediaId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.LessonId).HasMaxLength(450).IsRequired();
+            entity.Property(e => e.Transcription).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.TranscriptionLanguage).HasMaxLength(10);
+            entity.Property(e => e.Summary).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.SummaryType).HasMaxLength(50);
+            entity.Property(e => e.KeyPoints).HasColumnType("nvarchar(max)");
+            entity.Property(e => e.Status).HasConversion<int>().IsRequired();
+            entity.Property(e => e.ErrorMessage).HasMaxLength(1000);
+
+            entity.HasOne(d => d.Media)
+                .WithMany()
+                .HasForeignKey(d => d.MediaId)
+                .OnDelete(DeleteBehavior.Cascade)
+                .HasConstraintName("FK_VideoAnalysis_Media");
+
+            entity.HasOne(d => d.Lesson)
+                .WithMany()
+                .HasForeignKey(d => d.LessonId)
+                .OnDelete(DeleteBehavior.Restrict)
+                .HasConstraintName("FK_VideoAnalysis_Lesson");
         });
 
         OnModelCreatingPartial(modelBuilder);

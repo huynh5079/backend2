@@ -1025,18 +1025,42 @@ public class MomoPaymentService : IMomoPaymentService
                     "✅ [Retry] Đã query từ MoMo: PaymentId={PaymentId}, OrderId={OrderId}, Status sau query={Status}",
                     payment.Id, payment.OrderId, payment.Status);
                 
-                // Nếu sau khi query vẫn chưa Paid, trả về thông báo
+                // Nếu sau khi query vẫn chưa Paid, kiểm tra ResultCode từ MoMo
                 if (payment.Status != PaymentStatus.Paid)
                 {
-                    _logger.LogWarning(
-                        "⚠️ [Retry] Payment {PaymentId} (OrderId: {OrderId}) vẫn chưa Paid sau khi query. Status: {Status}. " +
-                        "Có thể thanh toán chưa hoàn tất hoặc đã thất bại.",
-                        payment.Id, payment.OrderId, payment.Status);
-                    return new OperationResult 
-                    { 
-                        Status = "Fail", 
-                        Message = $"Thanh toán chưa hoàn tất. Trạng thái hiện tại: {payment.Status}. Vui lòng thử lại sau." 
-                    };
+                    // Nếu MoMo báo ResultCode = 0 (thành công) nhưng status chưa Paid, có thể do delay
+                    // Hoặc nếu có TransactionId, có nghĩa là đã thanh toán thành công
+                    if (payment.ResultCode == 0 || !string.IsNullOrWhiteSpace(payment.TransactionId))
+                    {
+                        _logger.LogWarning(
+                            "⚠️ [Retry] Payment {PaymentId} (OrderId: {OrderId}) có ResultCode=0 hoặc TransactionId nhưng status = {Status}. " +
+                            "Có thể do delay, sẽ force update status = Paid.",
+                            payment.Id, payment.OrderId, payment.Status);
+                        
+                        // Force update status = Paid nếu có ResultCode = 0 hoặc TransactionId
+                        payment.Status = PaymentStatus.Paid;
+                        if (payment.PaidAt == null)
+                        {
+                            payment.PaidAt = DateTime.UtcNow;
+                        }
+                        await _uow.SaveChangesAsync();
+                        
+                        _logger.LogInformation(
+                            "✅ [Retry] Đã force update payment {PaymentId} status = Paid vì có ResultCode=0 hoặc TransactionId.",
+                            payment.Id);
+                    }
+                    else
+                    {
+                        _logger.LogWarning(
+                            "⚠️ [Retry] Payment {PaymentId} (OrderId: {OrderId}) vẫn chưa Paid sau khi query. Status: {Status}, ResultCode: {ResultCode}. " +
+                            "Có thể thanh toán chưa hoàn tất hoặc đã thất bại.",
+                            payment.Id, payment.OrderId, payment.Status, payment.ResultCode);
+                        return new OperationResult 
+                        { 
+                            Status = "Fail", 
+                            Message = $"Thanh toán chưa hoàn tất. Trạng thái hiện tại: {payment.Status}. Vui lòng thử lại sau." 
+                        };
+                    }
                 }
                 
                 _logger.LogInformation(

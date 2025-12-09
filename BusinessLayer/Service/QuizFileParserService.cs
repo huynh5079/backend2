@@ -45,6 +45,20 @@ namespace BusinessLayer.Service
             return parsedQuiz;
         }
 
+        public async Task<string> ExtractTextAsync(IFormFile file, CancellationToken ct = default)
+        {
+            // 1. Validate file
+            if (file == null || file.Length == 0)
+                throw new ArgumentException("File is empty or null");
+
+            var extension = Path.GetExtension(file.FileName).ToLower();
+            if (extension != ".txt" && extension != ".docx")
+                throw new ArgumentException("Only .txt and .docx files are supported");
+
+            // 2. Extract text from file
+            return await ExtractTextFromFileAsync(file, extension, ct);
+        }
+
         private async Task<string> ExtractTextFromFileAsync(IFormFile file, string extension, CancellationToken ct)
         {
             if (extension == ".txt")
@@ -69,85 +83,6 @@ namespace BusinessLayer.Service
             }
         }
 
-        /*private async Task<ParsedQuizDto> ParseWithGeminiAsync(string fileContent, CancellationToken ct)
-        {
-            var googleAI = new GoogleAI(_geminiApiKey);
-            var model = googleAI.GenerativeModel(_geminiModel);
-
-            // System instruction for AI
-            var systemInstruction = @"You are a quiz parser. Extract quiz information from the provided text.
-The text may be in any format. Your task is to identify:
-- Quiz title
-- Description (if any)
-- Time limit in minutes (default to 0 if not specified)
-- Passing score as percentage 0-100 (default to 70 if not specified)
-- Questions with 4 options (A, B, C, D) and correct answer
-- Explanation for each question (if provided)
-
-Return ONLY valid JSON in this exact format:
-{
-  ""title"": ""Quiz Title"",
-  ""description"": ""Description or null"",
-  ""timeLimit"": 30,
-  ""passingScore"": 70,
-  ""questions"": [
-    {
-      ""questionText"": ""Question text?"",
-      ""optionA"": ""Option A text"",
-      ""optionB"": ""Option B text"",
-      ""optionC"": ""Option C text"",
-      ""optionD"": ""Option D text"",
-      ""correctAnswer"": ""A"",
-      ""explanation"": ""Explanation or null""
-    }
-  ]
-}
-
-IMPORTANT: 
-- correctAnswer must be exactly 'A', 'B', 'C', or 'D' (uppercase)
-- Return ONLY the JSON object, no markdown, no explanations";
-
-            var prompt = $"{systemInstruction}\n\nParse this quiz:\n\n{fileContent}";
-
-            var response = await Task.Run(() => model.GenerateContent(prompt), ct);
-            var jsonResponse = response?.Candidates?.FirstOrDefault()?.Content?.Parts?.FirstOrDefault()?.Text?.Trim() ?? "";
-
-            // Remove markdown code blocks if present
-            if (jsonResponse.StartsWith("```json"))
-                jsonResponse = jsonResponse.Substring(7);
-            if (jsonResponse.StartsWith("```"))
-                jsonResponse = jsonResponse.Substring(3);
-            if (jsonResponse.EndsWith("```"))
-                jsonResponse = jsonResponse.Substring(0, jsonResponse.Length - 3);
-            jsonResponse = jsonResponse.Trim();
-
-            // Parse JSON
-            try
-            {
-                var options = new JsonSerializerOptions
-                {
-                    PropertyNameCaseInsensitive = true
-                };
-                var parsed = JsonSerializer.Deserialize<ParsedQuizDto>(jsonResponse, options);
-                
-                if (parsed == null || parsed.Questions == null || !parsed.Questions.Any())
-                    throw new InvalidOperationException("Failed to parse quiz: No questions found");
-
-                // Validate
-                foreach (var q in parsed.Questions)
-                {
-                    if (q.CorrectAnswer != 'A' && q.CorrectAnswer != 'B' && q.CorrectAnswer != 'C' && q.CorrectAnswer != 'D')
-                        throw new InvalidOperationException($"Invalid correct answer: {q.CorrectAnswer}");
-                }
-
-                return parsed;
-            }
-            catch (JsonException ex)
-            {
-                throw new InvalidOperationException($"Failed to parse Gemini response as JSON: {ex.Message}. Response was: {jsonResponse}");
-            }
-        }*/
-
         private async Task<ParsedQuizDto> ParseWithGeminiAsync(string fileContent, CancellationToken ct)
         {
             var googleAI = new GoogleAI(_geminiApiKey);
@@ -160,26 +95,60 @@ IMPORTANT:
                 MaxOutputTokens = 8192
             };
 
-            var systemInstruction = @"You are a strict quiz parser.
-OUTPUT FORMAT: JSON only.
-SCHEMA:
-{
-  ""title"": ""string"",
-  ""description"": ""string"",
-  ""timeLimit"": 30,
-  ""passingScore"": 70,
-  ""questions"": [
-    {
-      ""questionText"": ""string"",
-      ""optionA"": ""string"",
-      ""optionB"": ""string"",
-      ""optionC"": ""string"",
-      ""optionD"": ""string"",
-      ""correctAnswer"": ""A"" (must be A, B, C, or D),
-      ""explanation"": ""string""
-    }
-  ]
-}";
+            var systemInstruction = @"You are an intelligent quiz parser AI. 
+            Analyze the quiz content and extract/suggest information smartly:
+
+            1. TITLE (required):
+               - If file contains 'Title:', 'QUIZ:', 'Quiz:' → extract it
+               - If NOT found → analyze questions and CREATE a descriptive title
+               - Examples: 'C# Programming Quiz', 'Database Design Test', 'Advanced Algorithms'
+
+            2. DESCRIPTION:
+               - If found ('Description:', 'DESC:') → extract
+               - If NOT found → create brief description (1-2 sentences) or use null
+
+            3. TIME LIMIT (minutes):
+               - If specified ('TIME:', 'Time Limit:') → extract number
+                       - If NOT specified → SUGGEST based on:
+                 * 1-5 questions = 5-10 min
+                 * 6-10 questions = 10-15 min  
+                 * 11-15 questions = 15-20 min
+                 * 16+ questions = 25+ min
+                 * Adjust for complexity (longer questions need more time)
+
+            4. PASSING SCORE (percentage 0-100):
+               - If specified ('PASS:', 'Passing Score:') → extract number
+               - If NOT specified → SUGGEST based on difficulty:
+                 * Easy/simple questions = 80%
+                 * Medium complexity = 70%
+                 * Hard/technical questions = 60%
+
+            5. QUESTIONS: Extract all with A,B,C,D options, correct answer, explanation
+
+            OUTPUT FORMAT (JSON only):
+            {
+              ""title"": ""string"",
+              ""description"": ""string or null"",
+              ""timeLimit"": ""TIME LIMIT"",
+              ""passingScore"": ""PASSING SCORE"",
+              ""questions"": [
+                {
+                  ""questionText"": ""string"",
+                  ""optionA"": ""string"",
+                  ""optionB"": ""string"",
+                  ""optionC"": ""string"",
+                  ""optionD"": ""string"",
+                  ""correctAnswer"": ""A"" (must be A, B, C, or D),
+                  ""explanation"": ""string or null""
+                }
+              ]
+            }
+
+            RULES:
+            - ALWAYS provide title (extract or create)
+            - ALWAYS provide timeLimit & passingScore (extract or suggest)
+            - correctAnswer must be uppercase A, B, C, or D
+            - Return ONLY valid JSON";
             var prompt = $"{systemInstruction}\n\nCONTENT TO PARSE:\n{fileContent}";
 
             try
