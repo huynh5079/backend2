@@ -301,6 +301,10 @@ namespace DataLayer.Enum
         None,
         InappropriateContent,
         SubjectMismatch,
-        InappropriateImage
+        InappropriateImage,
+        InappropriateVideo,
+        InappropriateDocument,
+        UnsupportedFileType,
+        EducationLevelMismatch
     }
 }

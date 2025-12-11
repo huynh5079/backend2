@@ -1,6 +1,7 @@
 using BusinessLayer.DTOs.Quiz;
 using BusinessLayer.Service.Interface;
 using BusinessLayer.Storage;
+using BusinessLayer.Validators.Abstraction;
 using DataLayer.Entities;
 using DataLayer.Enum;
 using DataLayer.Repositories.Abstraction;
@@ -14,18 +15,21 @@ namespace BusinessLayer.Service
         private readonly IUnitOfWork _uow;
         private readonly IQuizFileParserService _fileParser;
         private readonly CloudinaryStorageService _cloudinaryService;
-        private readonly IQuizContentValidatorService _contentValidator;
+        private readonly ITextContentValidator _textValidator;
+        private readonly IImageContentValidator _imageValidator;
 
         public QuizService(
             IUnitOfWork uow, 
             IQuizFileParserService fileParser, 
             CloudinaryStorageService cloudinaryService,
-            IQuizContentValidatorService contentValidator)
+            ITextContentValidator textValidator,
+            IImageContentValidator imageValidator)
         {
             _uow = uow;
             _fileParser = fileParser;
             _cloudinaryService = cloudinaryService;
-            _contentValidator = contentValidator;
+            _textValidator = textValidator;
+            _imageValidator = imageValidator;
         }
 
         public async Task<string> CreateQuizFromFileAsync(string tutorUserId, UploadQuizFileDto dto, CancellationToken ct)
@@ -46,7 +50,7 @@ namespace BusinessLayer.Service
             // 2. Extract text and validate content
             string fileContent = await _fileParser.ExtractTextAsync(dto.QuizFile, ct);
             
-            var validationResult = await _contentValidator.ValidateTextAsync(fileContent, cls.Subject, ct);
+            var validationResult = await _textValidator.ValidateQuizTextAsync(fileContent, cls.Subject, ct);
             if (!validationResult.IsValid)
             {
                 throw new InvalidOperationException(validationResult.ErrorMessage);
@@ -138,7 +142,7 @@ namespace BusinessLayer.Service
             if (dto.Image != null && dto.Image.Length > 0)
             {
                 // Validate image content
-                var imageValidation = await _contentValidator.ValidateImageAsync(dto.Image);
+                var imageValidation = await _imageValidator.ValidateImageAsync(dto.Image);
                 if (!imageValidation.IsValid)
                 {
                     throw new InvalidOperationException(imageValidation.ErrorMessage);

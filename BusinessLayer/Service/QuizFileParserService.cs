@@ -7,6 +7,7 @@ using Microsoft.Extensions.Configuration;
 using Mscc.GenerativeAI;
 using System.Text;
 using System.Text.Json;
+using UglyToad.PdfPig;
 
 namespace BusinessLayer.Service
 {
@@ -18,12 +19,12 @@ namespace BusinessLayer.Service
 
         public QuizFileParserService(IConfiguration configuration)
         {
-            _geminiApiKey = configuration["Gemini:ApiKey"]
+            _geminiApiKey = configuration["Gemini_Video:ApiKey"]
                 ?? throw new InvalidOperationException("Gemini API Key not configured");
 
-            _geminiModel = configuration["Gemini:Model"] ?? "gemini-2.5-flash";
+            _geminiModel = configuration["Gemini_Video:Model"] ?? "gemini-1.5-flash";
 
-            _temperature = float.Parse(configuration["Gemini:Temperature"] ?? "0.1");
+            _temperature = float.Parse(configuration["Gemini_Video:Temperature"] ?? "0.1");
         }
 
         public async Task<ParsedQuizDto> ParseFileAsync(IFormFile file, CancellationToken ct = default)
@@ -52,8 +53,8 @@ namespace BusinessLayer.Service
                 throw new ArgumentException("File is empty or null");
 
             var extension = Path.GetExtension(file.FileName).ToLower();
-            if (extension != ".txt" && extension != ".docx")
-                throw new ArgumentException("Only .txt and .docx files are supported");
+            if (extension != ".txt" && extension != ".docx" && extension != ".pdf")
+                throw new ArgumentException("Only .txt, .docx, and .pdf files are supported");
 
             // 2. Extract text from file
             return await ExtractTextFromFileAsync(file, extension, ct);
@@ -66,7 +67,7 @@ namespace BusinessLayer.Service
                 using var reader = new StreamReader(file.OpenReadStream());
                 return await reader.ReadToEndAsync(ct);
             }
-            else // .docx
+            else if (extension == ".docx")
             {
                 using var stream = file.OpenReadStream();
                 using var doc = WordprocessingDocument.Open(stream, false);
@@ -78,6 +79,18 @@ namespace BusinessLayer.Service
                 foreach (var paragraph in body.Elements<Paragraph>())
                 {
                     text.AppendLine(paragraph.InnerText);
+                }
+                return text.ToString();
+            }
+            else // .pdf
+            {
+                using var stream = file.OpenReadStream();
+                using var pdfDocument = PdfDocument.Open(stream);
+                
+                var text = new StringBuilder();
+                foreach (var page in pdfDocument.GetPages())
+                {
+                    text.AppendLine(page.Text);
                 }
                 return text.ToString();
             }
@@ -95,60 +108,89 @@ namespace BusinessLayer.Service
                 MaxOutputTokens = 8192
             };
 
-            var systemInstruction = @"You are an intelligent quiz parser AI. 
-            Analyze the quiz content and extract/suggest information smartly:
+            var systemInstruction = @"You are an intelligent quiz parser AI with LANGUAGE-AWARE capabilities.
 
-            1. TITLE (required):
-               - If file contains 'Title:', 'QUIZ:', 'Quiz:' → extract it
-               - If NOT found → analyze questions and CREATE a descriptive title
-               - Examples: 'C# Programming Quiz', 'Database Design Test', 'Advanced Algorithms'
+        CRITICAL: LANGUAGE AUTO-DETECTION & MATCHING
 
-            2. DESCRIPTION:
-               - If found ('Description:', 'DESC:') → extract
-               - If NOT found → create brief description (1-2 sentences) or use null
+        STEP 1: DETECT INPUT LANGUAGE
+        - Analyze the quiz content to determine the PRIMARY language
+        - Possible languages: Vietnamese (vi), English (en), or other languages
+        - This detected language MUST be used for ALL output text fields
 
-            3. TIME LIMIT (minutes):
-               - If specified ('TIME:', 'Time Limit:') → extract number
-                       - If NOT specified → SUGGEST based on:
-                 * 1-5 questions = 5-10 min
-                 * 6-10 questions = 10-15 min  
-                 * 11-15 questions = 15-20 min
-                 * 16+ questions = 25+ min
-                 * Adjust for complexity (longer questions need more time)
+        STEP 2: PARSE CONTENT IN DETECTED LANGUAGE
 
-            4. PASSING SCORE (percentage 0-100):
-               - If specified ('PASS:', 'Passing Score:') → extract number
-               - If NOT specified → SUGGEST based on difficulty:
-                 * Easy/simple questions = 80%
-                 * Medium complexity = 70%
-                 * Hard/technical questions = 60%
+        1. TITLE (required):
+            - Use SAME LANGUAGE as input content
+            - Vietnamese input → Vietnamese title
+            Example: ""Bài kiểm tra Toán học lớp 10"", ""Quiz Lịch sử Việt Nam""
+            - English input → English title
+            Example: ""Grade 10 Mathematics Quiz"", ""World History Test""
+            - Other language → Use that language
 
-            5. QUESTIONS: Extract all with A,B,C,D options, correct answer, explanation
+        Rules:
+            - If file contains 'Title:', 'QUIZ:', 'Quiz:', 'Tiêu đề:' → extract it
+            - If NOT found → CREATE a descriptive title IN DETECTED LANGUAGE
+            - DON'T translate - keep original language
 
-            OUTPUT FORMAT (JSON only):
-            {
-              ""title"": ""string"",
-              ""description"": ""string or null"",
-              ""timeLimit"": ""TIME LIMIT"",
-              ""passingScore"": ""PASSING SCORE"",
-              ""questions"": [
+        2. DESCRIPTION:
+            - Use SAME LANGUAGE as input content
+            - Keep brief (1-2 sentences) or null
+            - Vietnamese: ""Kiểm tra kiến thức..."", ""Bài tập ôn tập...""
+            - English: ""Test on..."", ""Practice quiz...""
+            - DON'T translate
+
+        3. TIME LIMIT (minutes):
+            - If specified → extract number
+            - If NOT specified → SUGGEST based on:
+                * 1-5 questions = 5-10 min
+                * 6-10 questions = 10-15 min
+                * 11-15 questions = 15-20 min
+                * 16+ questions = 25+ min
+
+        4. PASSING SCORE (percentage 0-100):
+            - If specified → extract number
+            - If NOT specified → SUGGEST:
+                * Easy questions = 80%
+                * Medium = 70%
+                * Hard/technical = 60%
+
+        5. QUESTIONS:
+            - Keep in ORIGINAL LANGUAGE - DO NOT TRANSLATE
+            - Extract questionText, options A/B/C/D exactly as written
+            - Extract correct answer (A, B, C, or D)
+            - Extract explanation if available (in SAME LANGUAGE)
+
+        CRITICAL RULES:
+            - ALL text fields (title, description, questionText, options, explanation) MUST use the SAME LANGUAGE as input
+            - NEVER translate content
+            - Maintain language consistency throughout entire output
+            - If input is Vietnamese → output Vietnamese
+            - If input is English → output English
+            - If input is mixed → use the DOMINANT language
+
+        OUTPUT FORMAT (JSON only):
+        {
+            ""title"": ""<in detected language>"",
+            ""description"": ""<in detected language or null>"",
+            ""timeLimit"": <number>,
+            ""passingScore"": <number>,
+            ""questions"": [
                 {
-                  ""questionText"": ""string"",
-                  ""optionA"": ""string"",
-                  ""optionB"": ""string"",
-                  ""optionC"": ""string"",
-                  ""optionD"": ""string"",
-                  ""correctAnswer"": ""A"" (must be A, B, C, or D),
-                  ""explanation"": ""string or null""
+                    ""questionText"": ""<in original language>"",
+                    ""optionA"": ""<in original language>"",
+                    ""optionB"": ""<in original language>"",
+                    ""optionC"": ""<in original language>"",
+                    ""optionD"": ""<in original language>"",
+                    ""correctAnswer"": ""A"" (must be uppercase A, B, C, or D),
+                    ""explanation"": ""<in original language or null>""
                 }
-              ]
-            }
+            ]
+        }
 
-            RULES:
-            - ALWAYS provide title (extract or create)
-            - ALWAYS provide timeLimit & passingScore (extract or suggest)
-            - correctAnswer must be uppercase A, B, C, or D
-            - Return ONLY valid JSON";
+    VALIDATION:
+    - correctAnswer must be uppercase A, B, C, or D
+    - Return ONLY valid JSON
+    - NO markdown, NO code blocks, just pure JSON";
             var prompt = $"{systemInstruction}\n\nCONTENT TO PARSE:\n{fileContent}";
 
             try

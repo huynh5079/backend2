@@ -11,13 +11,13 @@ namespace BusinessLayer.Service.Interface.IScheduleService
     public interface IAssignService
     {
         // Student assign to a recurring class
-        Task<ClassDto> AssignRecurringClassAsync(string studentUserId, string classId);
+        Task<ClassAssignDetailDto> AssignRecurringClassAsync(string actorUserId, string userRole, AssignRecurringClassDto dto);
 
-        Task<bool> WithdrawFromClassAsync(string studentUserId, string classId);
+        Task<bool> WithdrawFromClassAsync(string actorUserId, string userRole, string classId, string? studentId);
         
         // New methods for enrollment management
-        Task<List<MyEnrolledClassesDto>> GetMyEnrolledClassesAsync(string studentUserId);
-        Task<EnrollmentCheckDto> CheckEnrollmentAsync(string studentUserId, string classId);
+        Task<List<MyEnrolledClassesDto>> GetMyEnrolledClassesAsync(string actorUserId, string userRole, string? studentId);
+        Task<EnrollmentCheckDto> CheckEnrollmentAsync(string actorUserId, string userRole, string classId, string? studentId);
         Task<List<StudentEnrollmentDto>> GetStudentsInClassAsync(string tutorUserId, string classId);
         Task<ClassAssignDetailDto> GetEnrollmentDetailAsync(string userId, string classId);
 
@@ -25,7 +25,7 @@ namespace BusinessLayer.Service.Interface.IScheduleService
         //Task<List<TutorStudentDto>> GetStudentsByTutorAsync(string tutorUserId);
 
         // Filter students by tutor and class
-        Task<List<RelatedResourceDto>> GetMyTutorsAsync(string studentUserId);
+        Task<List<RelatedResourceDto>> GetMyTutorsAsync(string actorUserId, string userRole, string? studentId);
         Task<List<RelatedResourceDto>> GetMyStudentsAsync(string tutorUserId);
     }
 }

@@ -4,6 +4,8 @@ using BusinessLayer.Service.Interface;
 using BusinessLayer.Service.Interface.IScheduleService;
 using BusinessLayer.Service.ScheduleService;
 using BusinessLayer.Storage;
+using BusinessLayer.Validators;
+using BusinessLayer.Validators.Abstraction;
 using DataLayer.Entities;
 using DataLayer.Repositories;
 using DataLayer.Repositories.Abstraction;
@@ -24,6 +26,12 @@ using TPEdu_API.Services;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Configure Kestrel for large file uploads (documents, videos)
+builder.WebHost.ConfigureKestrel(options =>
+{
+    options.Limits.MaxRequestBodySize = 500_000_000; // 500 MB limit
+});
+
 // Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
@@ -32,6 +40,14 @@ builder.Services.AddControllers()
         // Change to enum DayOfWeek (1, 2)
         options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter());
     });
+
+// Configure Form Options for file uploads
+builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(options =>
+{
+    options.MultipartBodyLengthLimit = 500_000_000; // 500 MB
+    options.ValueLengthLimit = int.MaxValue;
+    options.MultipartHeadersLengthLimit = int.MaxValue;
+});
 
 // Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
 builder.Services.AddEndpointsApiExplorer();
@@ -70,18 +86,6 @@ var sqlConnection = builder.Configuration.GetConnectionString("DefaultConnection
 builder.Services.AddDbContext<TpeduContext>(options =>
     options.UseSqlServer(sqlConnection));
 
-/* // Optional: SQL retry pattern
-builder.Services.AddDbContext<TpeduContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection"),
-        sqlOptions =>
-        {
-            sqlOptions.EnableRetryOnFailure(
-                maxRetryCount: 5,
-                maxRetryDelay: TimeSpan.FromSeconds(30),
-                errorNumbersToAdd: null);
-        }));
-*/
-
 // Generic Repository (open generic)
 builder.Services.AddScoped(typeof(IGenericRepository<>), typeof(GenericRepository<>));
 
@@ -92,6 +96,11 @@ builder.Services.AddScoped<IOtpService, OtpService>();
 builder.Services.AddScoped<IEmailService, EmailService>();
 builder.Services.AddSingleton<StoragePathResolver>();
 builder.Services.AddScoped<IFileStorageService, CloudinaryStorageService>();
+// Configure HttpClient cho VideoAnalysisService với timeout dài hơn cho video lớn
+builder.Services.AddHttpClient<VideoAnalysisService>(client =>
+{
+    client.Timeout = TimeSpan.FromMinutes(30); // Timeout 30 phút cho video lớn
+});
 builder.Services.AddScoped<IMediaService, MediaService>();
 builder.Services.AddScoped<IProfileService, ProfileService>();
 builder.Services.AddScoped<ITutorProfileApprovalService, TutorProfileApprovalService>();
@@ -112,7 +121,7 @@ builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<IFavoriteTutorService, FavoriteTutorService>();
 builder.Services.AddScoped<IQuizFileParserService, QuizFileParserService>();
-builder.Services.AddScoped<IQuizContentValidatorService, QuizContentValidatorService>();
+builder.Services.AddScoped<IMaterialContentValidatorService, MaterialContentValidatorService>();
 builder.Services.AddScoped<IQuizService, QuizService>();
 builder.Services.AddScoped<CloudinaryStorageService>();
 
@@ -125,13 +134,7 @@ builder.Services.AddScoped<IChatHubService, TPEdu_API.Services.ChatHubService>()
 builder.Services.AddScoped<IChatService, ChatService>();
 builder.Services.AddScoped<IConversationService, ConversationService>();
 builder.Services.AddScoped<IMomoPaymentService, MomoPaymentService>();
-builder.Services.AddScoped<IFeedbackService, FeedbackService>();
-builder.Services.AddScoped<IReportService, ReportService>();
-builder.Services.AddScoped<IFavoriteTutorService, FavoriteTutorService>();
-builder.Services.AddScoped<IQuizFileParserService, QuizFileParserService>();
-builder.Services.AddScoped<IQuizService, QuizService>();
 builder.Services.AddScoped<IVideoAnalysisService, VideoAnalysisService>();
-builder.Services.AddScoped<ILessonMaterialService, LessonMaterialService>();
 
 // Schedule Transactions
 builder.Services.AddScoped<IAvailabilityBlockService, AvailabilityBlockService>();
@@ -144,6 +147,13 @@ builder.Services.AddScoped<IAssignService, AssignService>();
 builder.Services.AddScoped<IStudentProfileService, StudentProfileService>();
 builder.Services.AddScoped<ILessonRescheduleService, LessonRescheduleService>();
 builder.Services.AddScoped<ILessonService, LessonService>();
+
+// Validation Architecture - Shared Validators
+builder.Services.AddScoped<ITextContentValidator, TextContentValidator>();
+builder.Services.AddScoped<IImageContentValidator, ImageContentValidator>();
+builder.Services.AddScoped<IVideoContentValidator, VideoContentValidator>();
+builder.Services.AddScoped<IDocumentContentValidator, DocumentContentValidator>();
+builder.Services.AddScoped<IMaterialContentValidatorService, MaterialContentValidatorService>();
 
 // Exception Handler & ProblemDetails
 builder.Services.AddExceptionHandler<ApiExceptionHandler>();
@@ -252,6 +262,30 @@ else
             return null!;
         }
     });
+}
+
+// Debug: Log Gemini API Keys khi app start
+var geminiApiKey = builder.Configuration["Gemini:ApiKey"] ?? "";
+var geminiVideoApiKey = builder.Configuration["Gemini_Video:ApiKey"] ?? "";
+
+if (!string.IsNullOrEmpty(geminiApiKey))
+{
+    var keyPreview = geminiApiKey.Substring(0, Math.Min(15, geminiApiKey.Length));
+    Console.WriteLine($"🔑 [Program.cs] Gemini API Key loaded at startup: {keyPreview}...");
+}
+else
+{
+    Console.WriteLine("⚠️ [Program.cs] WARNING: Gemini API Key is empty or not found!");
+}
+
+if (!string.IsNullOrEmpty(geminiVideoApiKey))
+{
+    var keyPreview = geminiVideoApiKey.Substring(0, Math.Min(15, geminiVideoApiKey.Length));
+    Console.WriteLine($"🔑 [Program.cs] Gemini_Video API Key loaded at startup: {keyPreview}...");
+}
+else
+{
+    Console.WriteLine("⚠️ [Program.cs] WARNING: Gemini_Video API Key is empty or not found!");
 }
 
 // JWT

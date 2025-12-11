@@ -23,6 +23,7 @@ namespace BusinessLayer.Service.ScheduleService
         private readonly IStudentProfileService _studentProfileService;
         private readonly IScheduleGenerationService _scheduleGenerationService;
         private readonly INotificationService _notificationService;
+        private readonly IParentProfileRepository _parentRepo;
 
         public TutorApplicationService(
             IScheduleUnitOfWork uow,
@@ -31,7 +32,8 @@ namespace BusinessLayer.Service.ScheduleService
             ITutorProfileService tutorProfileService,
             IStudentProfileService studentProfileService,
             IScheduleGenerationService scheduleGenerationService,
-            INotificationService notificationService)
+            INotificationService notificationService,
+            IParentProfileRepository parentRepo)
         {
             _uow = uow;
             _mainUow = mainUow;
@@ -40,6 +42,7 @@ namespace BusinessLayer.Service.ScheduleService
             _studentProfileService = studentProfileService;
             _scheduleGenerationService = scheduleGenerationService;
             _notificationService = notificationService;
+            _parentRepo = parentRepo;
         }
 
         #region Tutor's Actions
@@ -148,16 +151,24 @@ namespace BusinessLayer.Service.ScheduleService
 
         #endregion
 
-        #region Student's Actions
+        #region Student, Parent's Actions
 
         /// <summary>
         /// [CORE TRANSACTION] Student accepts 1 application from Tutor
         /// </summary>
-        public async Task<bool> AcceptApplicationAsync(string studentUserId, string applicationId)
+        public async Task<bool> AcceptApplicationAsync(string actorUserId, string role, string applicationId)
         {
-            var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(studentUserId);
-            if (studentProfileId == null)
-                throw new UnauthorizedAccessException("Tài khoản học sinh không hợp lệ.");
+            var app = await _uow.TutorApplications.GetAsync(
+                filter: a => a.Id == applicationId,
+                includes: q => q.Include(a => a.Tutor)
+            );
+            if (app == null) throw new KeyNotFoundException("Không tìm thấy đơn ứng tuyển.");
+
+            // Capture request result to use its StudentId
+            var validatedRequest = await ValidateRequestOwnershipAsync(actorUserId, role, app.ClassRequestId);
+
+            if (validatedRequest.Status != ClassRequestStatus.Pending)
+                throw new InvalidOperationException("Yêu cầu này đã được xử lý hoặc đã đóng.");
 
             // Start Big Transaction
             var executionStrategy = _context.Database.CreateExecutionStrategy();
@@ -174,12 +185,12 @@ namespace BusinessLayer.Service.ScheduleService
                                         .ThenInclude(cr => cr.ClassRequestSchedules)
                     );
 
-                    // 2. Validation
+                    // Validation
                     if (application == null)
                         throw new KeyNotFoundException("Đơn ứng tuyển không tồn tại.");
                     if (application.ClassRequest == null)
                         throw new KeyNotFoundException("Yêu cầu lớp học liên quan không tồn tại.");
-                    if (application.ClassRequest.StudentId != studentProfileId)
+                    if (application.ClassRequest.StudentId != validatedRequest.StudentId)
                         throw new UnauthorizedAccessException("Bạn không có quyền chấp nhận đơn này.");
                     if (application.Status != ApplicationStatus.Pending)
                         throw new InvalidOperationException("Đơn này đã được xử lý.");
@@ -225,7 +236,7 @@ namespace BusinessLayer.Service.ScheduleService
                     {
                         Id = Guid.NewGuid().ToString(),
                         ClassId = newClass.Id,
-                        StudentId = studentProfileId,
+                        StudentId = request.StudentId,
                         PaymentStatus = PaymentStatus.Pending, // Chưa thanh toán - sẽ thanh toán qua /escrow/pay
                         ApprovalStatus = ApprovalStatus.Approved, // Tutor đã apply + được HS chọn = Approved
                         EnrolledAt = DateTime.UtcNow
@@ -265,7 +276,7 @@ namespace BusinessLayer.Service.ScheduleService
                     // Commit transaction
                     await transaction.CommitAsync();
 
-                    // Gửi notification cho tutor khi application được accept
+                    // Send notifications outside transaction
                     var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(application.TutorId);
                     if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
                     {
@@ -281,13 +292,13 @@ namespace BusinessLayer.Service.ScheduleService
                         }
                         catch (Exception notifEx)
                         {
-                            // Log nhưng không throw để không ảnh hưởng đến business logic
+                            // Log but no throw to not affect business logic
                             System.Diagnostics.Debug.WriteLine($"Failed to send notification: {notifEx.Message}");
                         }
                     }
 
-                    // Gửi notification cho student khi accept application và class được tạo
-                    var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(studentProfileId);
+                    // send notification to student that class is created
+                    var studentProfile = await _mainUow.StudentProfiles.GetByIdAsync(request.StudentId);
                     if (studentProfile != null && !string.IsNullOrEmpty(studentProfile.UserId))
                     {
                         try
@@ -316,31 +327,31 @@ namespace BusinessLayer.Service.ScheduleService
             return true;
         }
 
-        public async Task<bool> RejectApplicationAsync(string studentUserId, string applicationId)
+        public async Task<bool> RejectApplicationAsync(string actorUserId, string role, string applicationId)
         {
-            var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(studentUserId);
-            if (studentProfileId == null)
-                throw new UnauthorizedAccessException("Tài khoản học sinh không hợp lệ.");
-
-            var application = await _uow.TutorApplications.GetAsync(
+            var app = await _uow.TutorApplications.GetAsync(
                 filter: a => a.Id == applicationId,
-                includes: q => q.Include(app => app.ClassRequest)
+                includes: q => q.Include(a => a.ClassRequest) // Include request to check ownership
             );
+            if (app == null) throw new KeyNotFoundException("Không tìm thấy đơn ứng tuyển.");
 
-            if (application == null)
-                throw new KeyNotFoundException("Đơn ứng tuyển không tồn tại.");
-            if (application.ClassRequest == null || application.ClassRequest.StudentId != studentProfileId)
+            // Capture validatedRequest result
+            var validatedRequest = await ValidateRequestOwnershipAsync(actorUserId, role, app.ClassRequestId);
+
+            if (app.Status != ApplicationStatus.Pending)
+                throw new InvalidOperationException("Không thể từ chối đơn này (đã xử lý rồi).");
+
+            // Check against validatedRequest.StudentId
+            if (app.ClassRequest == null || app.ClassRequest.StudentId != validatedRequest.StudentId)
                 throw new UnauthorizedAccessException("Bạn không có quyền từ chối đơn này.");
-            if (application.Status != ApplicationStatus.Pending)
-                throw new InvalidOperationException("Đơn này đã được xử lý.");
 
-            application.Status = ApplicationStatus.Rejected;
+            app.Status = ApplicationStatus.Rejected;
 
-            await _uow.TutorApplications.UpdateAsync(application); // Unsave
+            await _uow.TutorApplications.UpdateAsync(app); // Unsave
             await _uow.SaveChangesAsync(); // Save
 
             // Gửi notification cho tutor khi application bị reject
-            var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(application.TutorId);
+            var tutorProfile = await _mainUow.TutorProfiles.GetByIdAsync(app.TutorId);
             if (tutorProfile != null && !string.IsNullOrEmpty(tutorProfile.UserId))
             {
                 try
@@ -349,7 +360,7 @@ namespace BusinessLayer.Service.ScheduleService
                         tutorProfile.UserId,
                         NotificationType.TutorApplicationRejected,
                         $"Đơn ứng tuyển của bạn đã bị từ chối.",
-                        application.Id);
+                        app.Id);
                     await _uow.SaveChangesAsync();
                     await _notificationService.SendRealTimeNotificationAsync(tutorProfile.UserId, notification);
                 }
@@ -363,16 +374,18 @@ namespace BusinessLayer.Service.ScheduleService
             return true;
         }
 
-        public async Task<IEnumerable<TutorApplicationResponseDto>> GetApplicationsForMyRequestAsync(string studentUserId, string classRequestId)
+        public async Task<IEnumerable<TutorApplicationResponseDto>> GetApplicationsForMyRequestAsync(string actorUserId, string role, string classRequestId)
         {
-            var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(studentUserId);
-            if (studentProfileId == null)
-                throw new UnauthorizedAccessException("Tài khoản học sinh không hợp lệ.");
+            await ValidateRequestOwnershipAsync(actorUserId, role, classRequestId);
 
-            // Check if this request is from a student
-            var request = await _uow.ClassRequests.GetByIdAsync(classRequestId);
-            if (request == null || request.StudentId != studentProfileId)
-                throw new UnauthorizedAccessException("Không tìm thấy yêu cầu hoặc đây không phải yêu cầu của bạn.");
+            //var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(actorUserId);
+            //if (studentProfileId == null)
+            //    throw new UnauthorizedAccessException("Tài khoản học sinh không hợp lệ.");
+
+            //// Check if this request is from a student
+            //var request = await _uow.ClassRequests.GetByIdAsync(classRequestId);
+            //if (request == null || request.StudentId != studentProfileId)
+            //    throw new UnauthorizedAccessException("Không tìm thấy yêu cầu hoặc đây không phải yêu cầu của bạn.");
 
             // Get the applications
             var applications = await _uow.TutorApplications.GetAllAsync(
@@ -404,6 +417,37 @@ namespace BusinessLayer.Service.ScheduleService
                 // Update for link tranfer
                 MeetingLink = app.MeetingLink
             };
+        }
+
+        private async Task<ClassRequest> ValidateRequestOwnershipAsync(string actorUserId, string role, string classRequestId)
+        {
+            var request = await _uow.ClassRequests.GetAsync(
+                filter: r => r.Id == classRequestId,
+                includes: q => q.Include(r => r.ClassRequestSchedules)
+            );
+
+            if (request == null)
+                throw new KeyNotFoundException("Không tìm thấy yêu cầu lớp học.");
+
+            if (role == "Student")
+            {
+                var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(actorUserId);
+                if (request.StudentId != studentProfileId)
+                    throw new UnauthorizedAccessException("Bạn không có quyền thao tác với yêu cầu này.");
+            }
+            else if (role == "Parent")
+            {
+                // Check link Parent - Student (request.StudentId)
+                var isLinked = await _parentRepo.ExistsLinkAsync(actorUserId, request.StudentId!);
+                if (!isLinked)
+                    throw new UnauthorizedAccessException("Bạn không có quyền thao tác với yêu cầu của học sinh này.");
+            }
+            else
+            {
+                throw new UnauthorizedAccessException("Role không hợp lệ.");
+            }
+
+            return request;
         }
 
         /// <summary>

@@ -4,6 +4,7 @@ using BusinessLayer.Service.Interface;
 using BusinessLayer.Service.Interface.IScheduleService;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using System.Security.Claims;
 using TPEdu_API.Common.Extensions;
 
 namespace TPEdu_API.Controllers
@@ -35,17 +36,29 @@ namespace TPEdu_API.Controllers
         [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> CreateClassRequest([FromBody] CreateClassRequestDto dto)
         {
-            var userId = User.RequireUserId();
-            var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-            var result = await _classRequestService.CreateClassRequestAsync(userId, role, dto);
-
-            if (result == null)
+            try
             {
-                return StatusCode(500, ApiResponse<object>.Fail("Lỗi không xác định khi tạo yêu cầu."));
-            }
+                var userId = User.RequireUserId(); // Lấy ID từ Token
+                var role = User.FindFirst(ClaimTypes.Role)?.Value ?? string.Empty;
 
-            return CreatedAtAction(nameof(GetClassRequestById), new { id = result.Id }, ApiResponse<ClassRequestResponseDto>.Ok(result));
+                var result = await _classRequestService.CreateClassRequestAsync(userId, role, dto);
+
+                // Trả về 201 Created
+                return CreatedAtAction(nameof(GetClassRequestById), new { id = result?.Id }, ApiResponse<ClassRequestResponseDto>.Ok(result));
+            }
+            catch (ArgumentException ex) // Lỗi thiếu thông tin (vd: Parent không chọn con)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (UnauthorizedAccessException ex) // Lỗi không có quyền (không phải con mình)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail(ex.Message));
+            }
         }
 
         /// <summary>
@@ -55,6 +68,8 @@ namespace TPEdu_API.Controllers
         [Authorize(Roles = "Student,Parent")]
         public async Task<IActionResult> UpdateClassRequest(string id, [FromBody] UpdateClassRequestDto dto)
         {
+            try
+            {
             var userId = User.RequireUserId();
             var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
@@ -62,6 +77,23 @@ namespace TPEdu_API.Controllers
             if (result == null) return NotFound(ApiResponse<object>.Fail("Không tìm thấy yêu cầu."));
 
             return Ok(ApiResponse<ClassRequestResponseDto>.Ok(result, "Cập nhật thành công."));
+            }
+            catch (KeyNotFoundException ex)
+            {
+                return NotFound(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (InvalidOperationException ex) // Lỗi logic (vd: status != Pending)
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail(ex.Message));
+            }
         }
 
         /// <summary>
@@ -103,15 +135,27 @@ namespace TPEdu_API.Controllers
         /// </summary>
         [HttpGet("my-requests")]
         [Authorize(Roles = "Student,Parent")]
-        public async Task<IActionResult> GetMyClassRequests()
+        public async Task<IActionResult> GetMyClassRequests([FromQuery] string? childId)
         {
+            try
+            {
             var userId = User.GetUserId();
             if (userId == null)
                 return Unauthorized(new { message = "Token không hợp lệ." });
             var role = User.FindFirst(System.Security.Claims.ClaimTypes.Role)?.Value ?? "Student";
 
-            var result = await _classRequestService.GetMyClassRequestsAsync(userId, role);
-            return Ok(result);
+            var result = await _classRequestService.GetMyClassRequestsAsync(userId, role, childId);
+            return Ok(ApiResponse<IEnumerable<ClassRequestResponseDto>>.Ok(result));
+
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, ApiResponse<object>.Fail(ex.Message));
+            }
         }
         #endregion
 

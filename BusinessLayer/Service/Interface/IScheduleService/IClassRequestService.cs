@@ -10,7 +10,7 @@ namespace BusinessLayer.Service.Interface.IScheduleService
         Task<ClassRequestResponseDto?> UpdateClassRequestAsync(string actorUserId, string userRole, string requestId, UpdateClassRequestDto dto);
         Task<bool> UpdateClassRequestScheduleAsync(string actorUserId, string userRole, string requestId, List<ClassRequestScheduleDto> scheduleDtos);
         Task<bool> CancelClassRequestAsync(string actorUserId, string userRole, string requestId);
-        Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string actorUserId, string userRole);
+        Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string actorUserId, string userRole, string? specificChildId = null);
 
         // --- TUTOR's Actions ---
         Task<IEnumerable<ClassRequestResponseDto>> GetDirectRequestsAsync(string tutorUserId);

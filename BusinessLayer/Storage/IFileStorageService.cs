@@ -16,5 +16,10 @@ namespace BusinessLayer.Storage
             string ownerUserId,
             CancellationToken ct = default
         );
+        
+        /// <summary>
+        /// Delete a file from storage using its provider-specific public ID
+        /// </summary>
+        Task<bool> DeleteAsync(string providerPublicId, string contentType, CancellationToken ct = default);
     }
 }

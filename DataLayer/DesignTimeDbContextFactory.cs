@@ -1,7 +1,9 @@
 using DataLayer.Entities;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Design;
+using Microsoft.Extensions.Configuration;
 using System;
+using System.IO;
 
 namespace DataLayer
 {
@@ -9,9 +11,19 @@ namespace DataLayer
     {
         public TpeduContext CreateDbContext(string[] args)
         {
-            // Lấy connection string từ environment variable hoặc dùng default
-            var connectionString = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection")
-                ?? "Server=tcp:tpedu1.database.windows.net,1433;Initial Catalog=TPEdu;Persist Security Info=False;User ID=sep490;Password=Capstone490;MultipleActiveResultSets=False;Encrypt=True;TrustServerCertificate=False;Connection Timeout=60;Command Timeout=60;";
+            // Lấy connection string từ appsettings.json hoặc User Secrets
+            var basePath = Path.Combine(Directory.GetCurrentDirectory(), "..", "TPEdu_API");
+            
+            var configuration = new ConfigurationBuilder()
+                .SetBasePath(basePath)
+                .AddJsonFile("appsettings.json", optional: false)
+                .AddJsonFile("appsettings.Development.json", optional: true)
+                .AddUserSecrets<DesignTimeDbContextFactory>(optional: true)
+                .AddEnvironmentVariables()
+                .Build();
+
+            var connectionString = configuration.GetConnectionString("DefaultConnection")
+                ?? throw new InvalidOperationException("Connection string 'DefaultConnection' not found. Please configure it in appsettings.json or User Secrets.");
 
             var optionsBuilder = new DbContextOptionsBuilder<TpeduContext>();
             optionsBuilder.UseSqlServer(connectionString);

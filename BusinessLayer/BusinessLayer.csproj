@@ -17,6 +17,7 @@
     <PackageReference Include="StackExchange.Redis" Version="2.9.17" />
 	<PackageReference Include="Microsoft.AspNetCore.Hosting" Version="2.3.0" />
 	  <FrameworkReference Include="Microsoft.AspNetCore.App" />
+	  <PackageReference Include="UglyToad.PdfPig" Version="1.7.0-custom-5" />
   </ItemGroup>
 
   <ItemGroup>

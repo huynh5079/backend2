@@ -15,8 +15,8 @@ namespace BusinessLayer.Service.Interface.IScheduleService
         Task<IEnumerable<TutorApplicationResponseDto>> GetMyApplicationsAsync(string tutorUserId);
 
         // --- STUDENT's Actions ---
-        Task<IEnumerable<TutorApplicationResponseDto>> GetApplicationsForMyRequestAsync(string studentUserId, string classRequestId);
-        Task<bool> AcceptApplicationAsync(string studentUserId, string applicationId);
-        Task<bool> RejectApplicationAsync(string studentUserId, string applicationId);
+        Task<IEnumerable<TutorApplicationResponseDto>> GetApplicationsForMyRequestAsync(string actorUserId, string role, string classRequestId);
+        Task<bool> AcceptApplicationAsync(string actorUserId, string role, string applicationId);
+        Task<bool> RejectApplicationAsync(string actorUserId, string role, string applicationId);
     }
 }

@@ -11,5 +11,6 @@ namespace BusinessLayer.DTOs.Schedule.ClassAssign
     {
         [Required(ErrorMessage = "Class ID là bắt buộc.")]
         public string ClassId { get; set; } = null!;
+        public string? StudentId { get; set; }
     }
 }

@@ -35,9 +35,20 @@ namespace TPEdu_API.Controllers
             if (req.Files == null || req.Files.Count == 0)
                 return BadRequest(ApiResponse<object>.Fail("Vui lòng chọn ít nhất 1 file."));
 
-            var uid = User.RequireUserId();
-            var items = await _svc.UploadAsync(uid, lessonId, req.Files, ct);
-            return Ok(ApiResponse<object>.Ok(items, "Upload tài liệu thành công"));
+            try
+            {
+                var uid = User.RequireUserId();
+                var items = await _svc.UploadAsync(uid, lessonId, req.Files, ct);
+                return Ok(ApiResponse<object>.Ok(items, "Upload tài liệu thành công"));
+            }
+            catch (InvalidOperationException ex) when (ex.Message.Contains("vi phạm quy định"))
+            {
+                return BadRequest(ApiResponse<object>.Fail(ex.Message));
+            }
+            catch (UnauthorizedAccessException ex)
+            {
+                return StatusCode(403, ApiResponse<object>.Fail(ex.Message));
+            }
         }
 
         // 3) Add links (Tutor)

@@ -48,34 +48,7 @@ public class ClassRequestService : IClassRequestService
     #region Student's Actions
     public async Task<ClassRequestResponseDto?> CreateClassRequestAsync(string actorUserId, string userRole, CreateClassRequestDto dto)
     {
-        string? targetStudentProfileId = null;// Determine studentUserId
-
-        // Logic based on role
-        if (userRole == "Student")
-        {
-            // self create
-            targetStudentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(actorUserId);
-        }
-        else if (userRole == "Parent")
-        {
-            // Parent create for Student
-            if (string.IsNullOrEmpty(dto.StudentUserId))
-                throw new ArgumentException("Phụ huynh cần chọn học sinh (StudentUserId) để tạo yêu cầu.");
-
-            // target StudentProfileId
-            targetStudentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(dto.StudentUserId);
-
-            if (targetStudentProfileId == null)
-                throw new KeyNotFoundException("Tài khoản học sinh không tồn tại.");
-
-            // Check link Parent - Student
-            var isLinked = await _parentRepo.ExistsLinkAsync(actorUserId, targetStudentProfileId);
-            if (!isLinked)
-                throw new UnauthorizedAccessException("Bạn không có quyền tạo yêu cầu cho học sinh này.");
-        }
-
-        if (targetStudentProfileId == null)
-            throw new UnauthorizedAccessException("Không xác định được hồ sơ học sinh.");
+        var targetStudentProfileId = await ResolveTargetStudentProfileIdAsync(actorUserId, userRole, dto.StudentUserId);
 
         var executionStrategy = _context.Database.CreateExecutionStrategy();
         var newRequest = new ClassRequest();
@@ -89,7 +62,7 @@ public class ClassRequestService : IClassRequestService
                 newRequest = new ClassRequest
                 {
                     Id = Guid.NewGuid().ToString(),
-                    StudentId = targetStudentProfileId,
+                    StudentId = targetStudentProfileId, // Validated with helper below
                     TutorId = dto.TutorId, // null -> "Marketplace", ID -> "Direct"
                     Budget = dto.Budget,
                     Status = ClassRequestStatus.Pending, // Pending
@@ -262,7 +235,7 @@ public class ClassRequestService : IClassRequestService
             return false;
         }
     }
-    public async Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string actorUserId, string userRole)
+    public async Task<IEnumerable<ClassRequestResponseDto>> GetMyClassRequestsAsync(string actorUserId, string userRole, string? specificChildId = null)
     {
         List<string> studentProfileIds = new();
 
@@ -273,9 +246,21 @@ public class ClassRequestService : IClassRequestService
         }
         else if (userRole == "Parent")
         {
-            // Parent: Lấy tất cả ID của con
-            var childrenIds = await _parentRepo.GetChildrenIdsAsync(actorUserId);
-            studentProfileIds.AddRange(childrenIds);
+            // Parent: take all children or specific child
+            if (!string.IsNullOrEmpty(specificChildId))
+            {
+                // if specific child, validate link
+                var isLinked = await _parentRepo.ExistsLinkAsync(actorUserId, specificChildId);
+                if (!isLinked)
+                    throw new UnauthorizedAccessException("Bạn không có quyền xem yêu cầu của học sinh này.");
+
+                studentProfileIds.Add(specificChildId);
+            }
+            else
+            {
+                var childrenIds = await _parentRepo.GetChildrenIdsAsync(actorUserId);
+                studentProfileIds.AddRange(childrenIds);
+            }
         }
 
         if (!studentProfileIds.Any())
@@ -627,6 +612,7 @@ public class ClassRequestService : IClassRequestService
             CreatedAt = classRequest.CreatedAt,
             StudentName = classRequest.Student?.User?.UserName,
             TutorId = classRequest.TutorId,
+            TutorUserId = classRequest.Tutor.UserId,
             TutorName = classRequest.Tutor?.User?.UserName,
             Subject = classRequest.Subject,
             EducationLevel = classRequest.EducationLevel,
@@ -639,33 +625,66 @@ public class ClassRequestService : IClassRequestService
             }).ToList()
         };
     }
+
+    // Resolve StudentProfileId from UserID and Role
+    private async Task<string> ResolveTargetStudentProfileIdAsync(string actorUserId, string userRole, string? targetStudentUserId)
+    {
+        // If Student: take their own profile
+        if (userRole == "Student")
+        {
+            var profileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(actorUserId);
+            if (string.IsNullOrEmpty(profileId))
+                throw new KeyNotFoundException("Không tìm thấy hồ sơ học sinh của bạn.");
+            return profileId;
+        }
+
+        // if Parent: need to specify StudentUserId
+        if (userRole == "Parent")
+        {
+            if (string.IsNullOrEmpty(targetStudentUserId))
+                throw new ArgumentException("Phụ huynh cần chọn học sinh (StudentUserId) để thực hiện thao tác.");
+
+            // take target StudentProfileId based on UserID
+            var childProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(targetStudentUserId);
+            if (string.IsNullOrEmpty(childProfileId))
+                throw new KeyNotFoundException("Không tìm thấy hồ sơ học sinh này.");
+
+            // validate link Parent - Student
+            var isLinked = await _parentRepo.ExistsLinkAsync(actorUserId, childProfileId);
+            if (!isLinked)
+                throw new UnauthorizedAccessException("Bạn không có quyền thao tác trên hồ sơ học sinh này.");
+
+            return childProfileId;
+        }
+
+        throw new UnauthorizedAccessException("Role không hợp lệ.");
+    }
     private async Task<ClassRequest> ValidateAndGetRequestAsync(string actorUserId, string userRole, string requestId)
     {
-        // 1. Lấy request từ DB
+        // Request from db
         var request = await _uow.ClassRequests.GetAsync(r => r.Id == requestId);
-
         if (request == null)
             throw new KeyNotFoundException("Không tìm thấy yêu cầu lớp học.");
 
-        // 2. Kiểm tra quyền dựa trên Role
+        // check authorization
         if (userRole == "Student")
         {
-            // Nếu là học sinh: Phải là chính chủ (Request.StudentId khớp với Profile của user)
+            // if Student: check if request.StudentId matches their profile
             var studentProfileId = await _studentProfileService.GetStudentProfileIdByUserIdAsync(actorUserId);
             if (request.StudentId != studentProfileId)
                 throw new UnauthorizedAccessException("Bạn không có quyền chỉnh sửa yêu cầu này.");
+
         }
         else if (userRole == "Parent")
         {
-            // Nếu là phụ huynh: Kiểm tra xem request.StudentId có phải là con của phụ huynh này không
-            // Lưu ý: request.StudentId là ID của bảng StudentProfile
+            // If Parent: check if request.StudentId is linked to their children StudentProfileId
             var isLinked = await _parentRepo.ExistsLinkAsync(actorUserId, request.StudentId!);
             if (!isLinked)
                 throw new UnauthorizedAccessException("Bạn không có quyền chỉnh sửa yêu cầu của học sinh này.");
         }
         else
         {
-            // Role khác (Tutor/Admin...) không được dùng hàm này
+            // Other roles not allowed
             throw new UnauthorizedAccessException("Role không hợp lệ.");
         }
 
@@ -673,7 +692,7 @@ public class ClassRequestService : IClassRequestService
     }
 
     /// <summary>
-    ///  Kiểm tra duplicate class khi tạo từ ClassRequest
+    ///  Check for duplicate class based on ClassRequest details
     /// </summary>
     private async Task CheckForDuplicateClassFromRequestAsync(string tutorId, ClassRequest request)
     {
@@ -735,4 +754,5 @@ public class ClassRequestService : IClassRequestService
             }
         }
     }
+
 }

@@ -81,5 +81,45 @@ namespace BusinessLayer.Storage
             }
             return results;
         }
+
+        /// <summary>
+        /// Delete a file from Cloudinary storage using its public ID
+        /// </summary>
+        public async Task<bool> DeleteAsync(string providerPublicId, string contentType, CancellationToken ct = default)
+        {
+            if (string.IsNullOrWhiteSpace(providerPublicId))
+                return false;
+
+            try
+            {
+                var kind = StoragePathResolver.InferKind(contentType, "");
+                
+                DeletionResult result = kind switch
+                {
+                    FileKind.Image => await _cloud.DestroyAsync(new DeletionParams(providerPublicId)
+                    {
+                        ResourceType = ResourceType.Image
+                    }),
+                    
+                    FileKind.Video or FileKind.Audio => await _cloud.DestroyAsync(new DeletionParams(providerPublicId)
+                    {
+                        ResourceType = ResourceType.Video
+                    }),
+                    
+                    _ => await _cloud.DestroyAsync(new DeletionParams(providerPublicId)
+                    {
+                        ResourceType = ResourceType.Raw
+                    })
+                };
+
+                return result.Result == "ok";
+            }
+            catch (Exception ex)
+            {
+                // Log error but don't throw - deletion failure shouldn't block soft delete
+                Console.WriteLine($"Cloudinary deletion error for {providerPublicId}: {ex.Message}");
+                return false;
+            }
+        }
     }
 }
